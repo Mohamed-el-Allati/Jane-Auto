@@ -140,25 +140,27 @@ func attestPolicyHandler(c echo.Context) error {
             fmt.Printf("[attest][ERROR]Error being returned is %v whcih means the name wasn't found\n",err.Error())
 	} else {
 	    elementIDs = append(elementIDs, ids...)
+	    fmt.Printf("[attest] IDs returned for %v: %v\n", name, ids)
         }
     }
 
     elementIDs = unique(elementIDs)
     fmt.Printf("ElementIDs is %v\n",elementIDs)
+    }
 
     var results []AttestationResult
 
     for _, id := range elementIDs {
-	intents, err := janeGetIntents(id)
-	if err != nil {
-	    continue
-        }
+	for intentName, attestItem := range policy.Attestation {
+	    fmt.Printf("[attest] Processing element: %s\n", id)
 
-	for _, intent := range intents {
 	    claim, err := janeRunAttestation(id, intent)
 	    if err != nil {
-	  	continue
+		fmt.Printf("[attest][ERROr] Failed to attest element %s, int %s: %v\n", id, intent, err)
+		continue
 	    }
+	}
+	fmt.Printf("[attest] Claim received for element %s, intent %s: %+v\n", id, intent, claim)
 
 	    passed := runRules(claim, policy)
 	    results = append(results, AttestationResult{
@@ -167,9 +169,7 @@ func attestPolicyHandler(c echo.Context) error {
 		Claim: claim,
 		Passed: passed,
 	    })
-	}
     }
-
     return c.JSON(http.StatusOK, results)
 }
 
