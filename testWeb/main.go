@@ -3,16 +3,23 @@ package main
 import (
     "fmt"
     "log"
-    "net/http"
+    "github.com/labstack/echo/v4"
+    "github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
     connectDB("mongodb://172.16.222.58:27017")
 
-    http.HandleFunc("/", homeHandler)
-    http.HandleFunc("/policies", policiesHandler)
-    http.HandleFunc("/execute", executeHandler)
+    e := echo.New()
+
+    e.Use(middleware.Logger())
+    e.Use(middleware.Recover())
+
+    e.GET("/", homeHandler)
+    e.GET("/policies", policiesHandler)
+    e.GET("/execute/:policyName", attestPolicyHandler)
+
 
     fmt.Println("Server is running at http://localhost:8080")
-    log.Fatal(http.ListenAndServe(":8080", nil))
+    log.Fatal(e.Start(":8080"))
 }

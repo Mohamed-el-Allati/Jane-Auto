@@ -23,6 +23,63 @@ func janeGet(path string, target interface{}) error {
     return json.NewDecoder(resp.Body).Decode(target)
 }
 
+type returnElements struct {
+    Elements []string  `json:"elements"`
+    Length   int       `json:"length"`
+}
+
+
+func janeGetElementsByName(name string) ([]string, error){
+    url := janeURL+"/elements/name/"+name
+    fmt.Printf(" getting URL: %v\n", url)
+    resp, err := http.Get(url)
+    if err != nil {
+	return nil, err
+    }
+    defer resp.Body.Close()
+
+    fmt.Printf(" body is %v\n",resp.Body)
+
+    var es returnElements 
+
+    if err := json.NewDecoder(resp.Body).Decode(&es); err != nil {
+        fmt.Printf("Decode error is %v\n",err.Error())
+	return nil, err
+    }
+ 
+    fmt.Printf("Returned element is %v\n",es.Elements)
+    return es.Elements, nil
+}
+
+func janeGetIntents(elementID string) ([]string, error){ 
+    resp, err := http.Get(janeURL + "/elements/" + elementID + "/intents")
+    if err != nil { 
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    var intents []string
+    if err := json.NewDecoder(resp.Body).Decode(&intents); err != nil { 
+        return nil, err
+    }
+    return intents, nil
+}
+
+func janeRunAttestation(elementID, intent string) (map[string]interface{}, error){ 
+    resp, err := http.Get(janeURL + "/attest/" + elementID + "/" + intent)
+    if err != nil { 
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    var claim map[string]interface{}
+    if err := json.NewDecoder(resp.Body).Decode(&claim); err != nil { 
+        return nil, err
+    }
+    return claim, nil
+}
+
+
 func executePolicy(policy Policy) ([]string, error) {
     elementSet := make(map[string]struct{})
 
