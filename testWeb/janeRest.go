@@ -66,7 +66,8 @@ func janeGetIntents(elementID string) ([]string, error){
 }
 
 func janeRunAttestation(elementID, intent string) (map[string]interface{}, error){ 
-    resp, err := http.Get(janeURL + "/attest/" + elementID + "/" + intent)
+    fmt.Printf("[janeRunAttestation] GET %s/execute/%s/%s\n", janeURL, elementID, intent)
+    resp, err := http.Get(janeURL + "/execute/" + elementID + "/" + intent)
     if err != nil { 
         return nil, err
     }
