@@ -19,6 +19,7 @@ func main() {
     e.GET("/policies", policiesHandler)
     e.GET("/execute/:policyName", attestPolicyHandler)
 
+    e.POST("/execute/:policyName", executePolicyHandler)
 
     fmt.Println("Server is running at http://localhost:8080")
     log.Fatal(e.Start(":8080"))

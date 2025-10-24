@@ -12,6 +12,13 @@ import (
     "github.com/labstack/echo/v4"
 )
 
+func normalizeIntentPath(pid stirng) string {
+    pid = strings.TrimSpace(pid)
+    pid = strings.TrimPrefix(pid, "std::intent::")
+    pid = strings.ReplaceAll(pid, "::", "/")
+    return pid
+}
+
 func homeHandler(c echo.Context) error {
     html := `
     <!DOCTYPE html>
@@ -68,8 +75,7 @@ func policiesHandler(c echo.Context) error {
 	    <p><b>Items:</b> %v</p>
 	    <p><b>Tags:</b> %v</p>
 	    <p><b>Names:</b> %v</p>
-	    <form action="/execute" method="post">
-		<input type="hidden" name="policy" value="%s">
+	    <form action="/execute/%s" method="post">
 		<button type="submit">Execute</button>
 	    </form>
 	    <hr>
@@ -237,6 +243,22 @@ func executePolicyHandler(c echo.Context) error {
     }
     defer closeJaneSession(janeURL, sid)
 
+    resp, err := http.Get(janeURL + "/intents")
+    if err != nil {
+	return c.String(http.StatusInternalServerError, "Failed to fetch intents: "+err.Error())
+    }
+    defer resp.Body.Close()
+    var intentData struct {
+	Intents []string `bson:"intents" json:"intents"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&intentData); err != nil {
+	return c.String(http.StatusInternalServerError, "Failed to decode intents: "+err.Error())
+    }
+    validIntents := make(map[string]struct{})
+    for _, i := range intentData.Intents {
+	validIntents[i] = struct{}{}
+    }
+
     var elementIDs []string
     elementIDs = append(elementIDs, policy.Collection.Items...)
     for _, name := range policy.Collection.Names {
@@ -248,8 +270,18 @@ func executePolicyHandler(c echo.Context) error {
     var results []AttestationResult
     for _, eid := range elementIDs {
 	for intentName, attest := range policy.Attestation {
-	   claim, err := janeRunAttestationWithSession(janeURL, eid, intentName, sid, attest.Endpoint)
-	   if err != nil {
+	    if _, ok := validIntents[intentName]; !ok {
+		results = append(results, AttestationResult{
+		    ElementID: eid,
+		    Intent: intentName,
+		    Claim: map[string]string{"error": "Intent not found on JANE"},
+		    Passed: false,
+		})
+		continue
+	    }
+	    
+	    claim, err := janeRunAttestationWithSession(janeURL, eid, intentName, sid, attest.Endpoint)
+	    if err != nil {
 		results = append(results, AttestationResult{ElementID: eid, Intent: intentName, Claim: map[string]string{"error": err.Error()}, Passed: false})
 		continue
 	   }
@@ -301,11 +333,36 @@ func janeRunAttestationWithSession(janeURL, eid, intentName, sid, endpoint strin
     defer resp.Body.Close()
 
     var claim map[string]interface{}
-    json.NewDecoder(resp.Body).Decode(&claim)
+    if err := json.NewDecoder(resp.Body).Decode(&claim); err != nil {
+	return nil, err
+    }
+
+    if msg, ok := claim["message"].(string); ok && strings.Contains(msg, "Element not found") {
+	fmt.Printf("[janeRunAttestation] Element %s not found. Creating it...\n", eid)
+
+	elemPayload := map[string]interface{}{
+	    "id": eid,
+	    "name": eid,
+	}
+	b2, _ := json.Marshal(elemPayload)
+	resp2, err := http.Post(janeURL+"/elements", "application/json", bytes.NewBuffer(b2))
+	if err != nil {
+	    return nil, fmt.Errorf("failed to create element: %v", err)
+	}
+	resp2.Body.Close()
+
+	respRetry, err := http.Post(janeURL+"/attest", "application/json", bytes.NewBuffer(b))
+	if err != nil {
+	    return nil, err
+	}
+	defer respRetry.Body.Close()
+	claim = map[string]interface{}{}
+	if err := json.NewDecoder(respRetry.Body).Decode(&claim); err != nil {
+	    return nil, err
+	}
+    }
     return claim, nil
 }
-
-
 
 
 
