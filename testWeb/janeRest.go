@@ -65,20 +65,20 @@ func janeGetIntents(elementID string) ([]string, error){
     return intents, nil
 }
 
-func janeRunAttestation(elementID, intent string) (map[string]interface{}, error){ 
-    fmt.Printf("[janeRunAttestation] GET %s/execute/%s/%s\n", janeURL, elementID, intent)
-    resp, err := http.Get(janeURL + "/execute/" + elementID + "/" + intent)
-    if err != nil { 
-        return nil, err
-    }
-    defer resp.Body.Close()
+//func janeRunAttestation(elementID, intent string) (map[string]interface{}, error){ 
+   //fmt.Printf("[janeRunAttestation] GET %s/execute/%s/%s\n", janeURL, elementID, intent)
+   // resp, err := http.Get(janeURL + "/execute/" + elementID + "/" + intent)
+    //if err != nil { 
+        //return nil, err
+    //}
+    //defer resp.Body.Close()
 
-    var claim map[string]interface{}
-    if err := json.NewDecoder(resp.Body).Decode(&claim); err != nil { 
-        return nil, err
-    }
-    return claim, nil
-}
+    //var claim map[string]interface{}
+    //if err := json.NewDecoder(resp.Body).Decode(&claim); err != nil { 
+       // return nil, err
+    //}
+    //return claim, nil
+//}
 
 
 func executePolicy(policy Policy) ([]string, error) {
