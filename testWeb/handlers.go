@@ -237,7 +237,7 @@ func createJaneSession(janeURL string) (string, error) {
     defer resp.Body.Close()
 
     var res struct {
-	SID	string	`json:"sid"`
+	ItemID	string	`json:"itemid"`
 	Error	string	`json:"error"`
     }
     if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
@@ -246,7 +246,7 @@ func createJaneSession(janeURL string) (string, error) {
     if res.Error != "" {
 	return "", fmt.Errorf("session error: %s", res.Error)
     }
-    return res.SID, nil
+    return res.ItemID, nil
 }
 
 func closeJaneSession(janeURL, sid string) {
@@ -287,6 +287,15 @@ func executePolicyHandler(c echo.Context) error {
 	elementIDs = append(elementIDs, ids...)
     }
     elementIDs = unique(elementIDs)
+
+    var filtered []string
+    for _, id := range elementIDs {
+	if strings.TrimSpace(id) != "" {
+	    filtered = append(filtered, id)
+	}
+    }
+    elementIDs = filtered
+    fmt.Printf("[attest] ElementIDs (filtered) is %v\n", elementIDs)
 
     sid, err := createJaneSession(janeURL)
     if err != nil {
@@ -332,10 +341,11 @@ type Result struct {
 
 func janeRunAttestation(janeURL, elementID, intentName, endpoint, sid string) (map[string]interface{}, error) {
     attestData := map[string]interface{}{
-	"eid": elementID,
-	"pid": intentName,
-	"epn": endpoint,
-	"sid": sid,
+	"eid": 		elementID,
+	"pid": 		intentName,
+	"epn": 		endpoint,
+	"sid":		sid,
+	"parameters":	map[string]interface{}{},
     }
 
     body, _ := json.Marshal(attestData)
