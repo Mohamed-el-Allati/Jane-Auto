@@ -38,12 +38,6 @@ func policiesHandler(c echo.Context) error {
     }
     defer cursor.Close(ctx)
 
-    var rawFiles []map[string]interface{}
-    if err = cursor.All(ctx, &rawFiles); err != nil {
-	return c.String(http.StatusInternalServerError, "Error reading the raw files: "+err.Error())
-    }
-    fmt.Printf("[DEBUG] Raw policies: %+v\n", rawFiles)
-
     cursor, err = collection.Find(ctx, map[string]interface{}{})
     if err != nil {
 	return c.String(http.StatusInternalServerError, "Error retrieving policies for decoding")
@@ -83,43 +77,6 @@ func policiesHandler(c echo.Context) error {
     }
 
     html.WriteString(`<p><a href="/">Back to home</a></p></body></html>`)
-    return c.HTML(http.StatusOK, html.String())
-}
-
-func executeHandler(c echo.Context) error {
-    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    defer cancel()
-
-    policyName := c.FormValue("policy")
-
-    var policy Policy
-    collection := client.Database("testdb").Collection("policies")
-    if err := collection.FindOne(ctx, map[string]interface{}{"name": policyName}).Decode(&policy); err != nil {
-	return c.String(http.StatusNotFound, "Policy not found")
-    }
-
-    elements, err := executePolicy(policy)
-    if err != nil {
-	return c.String(http.StatusInternalServerError, "Execution failed: "+err.Error())
-    }
-
-    accept := c.Request().Header.Get("Accept")
-    if strings.Contains(accept, "json") {
-	return c.JSON(http.StatusOK, map[string]interface{}{
-	    "policy": policy.Name,
-	    "elements": elements,
-	})
-    }
-
-    var html strings.Builder
-    html.WriteString(fmt.Sprintf("<h1>Executed Policy: %s</h1>", policy.Name))
-    html.WriteString("<ul>")
-    for _, e := range elements {
-	html.WriteString(fmt.Sprintf("<li>%s</li>", e))
-    }
-    html.WriteString("</ul>")
-    html.WriteString(`<p><a href="/policies">Back to policies</a></p>`)
-
     return c.HTML(http.StatusOK, html.String())
 }
 
@@ -223,12 +180,6 @@ func unique(items []string) []string {
     return result
 }
 
-type sessionResponse struct {
-    SID		string `bson: "sid" json:"sid"`
-    Status	string `bson: "status" json:"status"`
-    Error	string `bson: "error" json:"error"`
-}
-
 func createJaneSession(janeURL string) (string, error) {
     resp, err := http.Post(janeURL+"/session", "application/json", nil)
     if err != nil {
@@ -251,7 +202,12 @@ func createJaneSession(janeURL string) (string, error) {
 
 func closeJaneSession(janeURL, sid string) {
     req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/session/%s", janeURL, sid), nil)
-    http.DefaultClient.Do(req)
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+	fmt.Println("Failed to close JANE session:", err)
+    } else {
+        resp.Body.Close()
+    }
 }
 
 func executePolicyHandler(c echo.Context) error {
@@ -329,14 +285,6 @@ func executePolicyHandler(c echo.Context) error {
     return c.JSON(http.StatusOK, map[string]interface{}{
 	"results":	results,
     })
-}
-
-type Result struct {
-    ElementID	string	`json:"elementID"`
-    Intent	string	`json:"intent"`
-    Claim	interface{}	`json:"claim"`
-    Error	string	`json:"error"`
-    Passed	bool	`json:"passed"`
 }
 
 func janeRunAttestation(janeURL, elementID, intentName, endpoint, sid string) (map[string]interface{}, error) {

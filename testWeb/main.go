@@ -5,10 +5,19 @@ import (
     "log"
     "github.com/labstack/echo/v4"
     "github.com/labstack/echo/v4/middleware"
+
+    "../config"
 )
 
 func main() {
-    connectDB("mongodb://172.16.222.58:27017")
+    //connectDB("mongodb://172.16.222.58:27017")
+    config.ParseFlags()
+    config.SetupConfiguration()
+
+    fmt.Println("Mongo URI:", config.ConfigData.Database.Connection)
+    fmt.Println("JANE URL:", config.ConfigData.Rest.Port)
+
+    connectDB(config.ConfigData.Database.Connection)
 
     e := echo.New()
 
@@ -17,10 +26,9 @@ func main() {
 
     e.GET("/", homeHandler)
     e.GET("/policies", policiesHandler)
-    e.GET("/execute/:policyName", attestPolicyHandler)
 
     e.POST("/execute/:policyName", executePolicyHandler)
 
-    fmt.Println("Server is running at http://localhost:8080")
-    log.Fatal(e.Start(":8080"))
+    addr := fmt.Sprintf(":%s", config.ConfigData.Rest.Port)
+    log.Fatal(e.Start(addr))
 }

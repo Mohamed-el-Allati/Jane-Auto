@@ -29,8 +29,3 @@ type Item struct {
     ID		string `json:"id"`
     Elements 	[]string `json:"elements"`
 }
-
-type Element struct {
-    ID	string `json:"id"`
-    Name string `json:"name"`
-}
