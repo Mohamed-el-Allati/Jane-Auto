@@ -82,9 +82,9 @@ func policiesHandler(c echo.Context) error {
 
 type AttestationResult struct {
     ElementID	string		`bson:"element_id" json:"element_id"`
-    Intent	string		`bson: "intent" json:"intent"`
-    Claim	interface{}	`bson: "claim" json:"claim"`
-    Passed	bool		`bson: "passed" json:"passed"`
+    Intent	string		`bson:"intent" json:"intent"`
+    Claim	interface{}	`bson:"claim" json:"claim"`
+    Passed	bool		`bson:"passed" json:"passed"`
 }
 
 func attestPolicyHandler(c echo.Context) error {
@@ -125,10 +125,12 @@ func attestPolicyHandler(c echo.Context) error {
     var results []AttestationResult
 
     for _, id := range elementIDs {
-	for intentName := range policy.Attestation {
+	for _, attest := range policy.Attestations {
+	    intentName := attest.Intent
+
 	    fmt.Printf("[attest] Processing element: %s, intent: %s\n", id, intentName)
 
-	    claim, err := janeRunAttestation(policy.Jane, id, intentName, policy.Attestation[intentName].Endpoint, sid)
+	    claim, err := janeRunAttestation(policy.Jane, id, intentName, attest.Endpoint, sid)
 	    if err != nil {
 		fmt.Printf("[attest][ERROr] Failed to attest element %s, intent %s: %v\n", id, intentName, err)
 		results = append(results, AttestationResult{
@@ -158,7 +160,7 @@ func attestPolicyHandler(c echo.Context) error {
     return c.JSON(http.StatusOK, results)
 }
 
-func runRules(claim map[string]interface{}, policy *Policy) bool {
+func runRules(claim map[string]interface{}, rules []Rules) bool {
     if msg, ok := claim["error"].(string); ok && msg != "" {
 	return false
     }
@@ -261,7 +263,8 @@ func executePolicyHandler(c echo.Context) error {
 
     var results []AttestationResult
     for _, eid := range elementIDs {
-	for intentName, attest := range policy.Attestation {
+	for _, attest := range policy.Attestations {
+	    intentName := attest.Intent
 	    if _, ok := validIntents[intentName]; !ok {
 		results = append(results, AttestationResult{
 		    ElementID: 	eid,
@@ -277,7 +280,7 @@ func executePolicyHandler(c echo.Context) error {
 		results = append(results, AttestationResult{ElementID: eid, Intent: intentName, Claim: map[string]string{"error": err.Error()}, Passed: false})
 		continue
 	   }
-	   passed := runRules(claim, policy)
+	   passed := runRules(claim, attest.Rules)
 	   results = append(results, AttestationResult{ElementID: eid, Intent: intentName, Claim: claim, Passed: passed})
 	}
     }

@@ -5,15 +5,17 @@ type Policy struct {
     Description	string			`bson:"description" json:"description"`
     Jane	string			`bson:"jane" json:"jane"`
     Collection	PolicyCollection	`bson:"collection" json:"collection"`
-    Attestation map[string]AttestItem   `bson:"attestation" json:"attestation"`
+    Attestations []AttestItem		`bson:"attestations" json:"attestations"`
 }
 
 type AttestItem struct {
-    Endpoint string             `bson:"endpoint" json:"endpoint"`
-    Rules    map[string]Rule    `bson:"rules" json:"rules"`
+    Intent	string	`bson:"intent" json:"intent"`
+    Endpoint	string	`bson:"endpoint" json:"endpoint"`
+    Rules    	[]Rule  `bson:"rules" json:"rules"`
 }
 
 type Rule struct {
+    Name      string	`bson:"name"	  json:"name"`
     RVariable string    `bson:"rvariable" json:"rvariable"`
     Parameter string    `bson:"parameter" json:"parameter"`
     Decision  string    `bson:"decision"  json:"decision"`
