@@ -6,7 +6,7 @@ import (
     "net/http"
     "time"
 
-    "../config"
+    "janeauto/config"
 )
 
 janeURL := config.ConfigData.Rest.Port

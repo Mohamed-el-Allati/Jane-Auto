@@ -96,7 +96,34 @@ func attestPolicyHandler(c echo.Context) error {
 	fmt.Printf("[attest][ERROR] unable to fetc policy: %v\n", err)
 	return c.String(http.StatusNotFound, "Policy not Found")
     }
-    fmt.Printf("[attest] LoAded policy: %+v\n", policy)
+    fmt.Printf("[attest] Loaded policy: %+v\n", policy)
+
+    resp, err := http.Get(janeURL + "/intents")
+    if err != nil {
+	return c.String(http.StatusInternalServerError, "Failed to fetch intents: "+err.Error())
+    }
+    defer resp.Body.Close()
+
+    var intentData struct {
+	Intents []struct {
+	    ItemID	string	`json:"itemid"`
+	    Name	string	`json:"name"`
+	}`json:"intents"`
+    }
+
+    if err := json.NewDecoder(resp.Body).Decode(&intentData); err != nil {
+	return c.String(http.StatusInternalServerError, "Failed to decode intents: "+err.Error())
+    }
+
+    fmt.Printf("[DEBUG] intents from JANE: %+v\n", intentData.Intents)
+
+    intentNameToID := make(map[string]string)
+    for _, i := range intentData.Intents {
+	intentNameToID[i.Name] = i.ItemID
+    }
+
+    fmt.Printf("[DEBUG] intentNameToID = %+v\n", intentNameToID)
+
 
     sid, err := createJaneSession(policy.Jane)
     if err != nil {
@@ -110,12 +137,11 @@ func attestPolicyHandler(c echo.Context) error {
     for _, name := range policy.Collection.Names {
 	fmt.Printf("[attest] Getting name %v\n",name)
 	ids, err := janeGetElementsByName(name)
-        fmt.Printf("[attest] Returned ids is %v\n",ids)
+        fmt.Printf("[attest] Returned ids for name %v: %v\n",name, ids)
 	if err != nil {
-            fmt.Printf("[attest][ERROR]Error being returned is %v whcih means the name wasn't found\n",err.Error())
+            fmt.Printf("[attest][ERROR]Error returned for name %v: %v\n", name, err)
 	} else {
 	    elementIDs = append(elementIDs, ids...)
-	    fmt.Printf("[attest] IDs returned for %v: %v\n", name, ids)
         }
     }
 
@@ -124,37 +150,46 @@ func attestPolicyHandler(c echo.Context) error {
 
     var results []AttestationResult
 
-    for _, id := range elementIDs {
+    for _, eid := range elementIDs {
 	for _, attest := range policy.Attestations {
-	    intentName := attest.Intent
 
-	    fmt.Printf("[attest] Processing element: %s, intent: %s\n", id, intentName)
-
-	    claim, err := janeRunAttestation(policy.Jane, id, intentName, attest.Endpoint, sid)
-	    if err != nil {
-		fmt.Printf("[attest][ERROr] Failed to attest element %s, intent %s: %v\n", id, intentName, err)
+	    pid, ok := intentNameToID[attest.Intent]
+	    if !ok {
+		fmt.Printf("[attest][ERROR] Intent not found on Jane: %s\n", attest.Intent)
 		results = append(results, AttestationResult{
-		    ElementID: 	id,
-		    Intent:	intentName,
-		    Claim:	map[string]interface{}{"message": err.Error()},
+		    ElementID: 	eid,
+		    Intent:	attest.Intent,
+		    Claim:	map[string]{"error": "Intent not found on JANE"},
 		    Passed:	false,
 		})
 		continue
 	    }
-	    fmt.Printf("[attest] Claim received for element %s, intent %s: %+v\n", id, intentName, claim)
+	    fmt.Printf("[attest] Running attestation eid=%s pid=%s intent=%s endpoint=%s\n",
+		eid, pid, attest.Intent, attest.Endpoint,
+	    )
 
-	    passed := true
+	    claim, err := janeRunAttestation(policy.Jane, eid, pid, attest.Endpoint, sid)
+	    if err != nil {
+		fmt.Printf("[attest][ERROR] Attestation failed for eid=%s, intent=%s: %v\n", eid, attest.Intent, err)
+		results = append(results, AttestationResult{
+		    ElementID:	eid,
+		    Intent:	attest.Intent,
+		    Claim:	map[string]string{"error": err.Error()},
+		    Passed:	false,
+		})
+		continue
+	    }
+
+	    fmt.Printf("[attest] Claim received for eid=%s intent=%s: %+v\n", eid, attest.Intent, claim)
+
+	    passed := runRules(claim, attest.Rules)
 	    if m, ok := claim["message"].(string); ok && m == "Not Found" {
 		passed = false
 	    }
 
-	    if runRules(claim, attest.Rules) == false {
-		passed = false
-	    }
-
 	    results = append(results, AttestationResult{
-		ElementID: id,
-		Intent: intentName,
+		ElementID: eid,
+		Intent: attest.Intent,
 		Claim: claim,
 		Passed: passed,
 	    })
