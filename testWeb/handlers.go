@@ -148,6 +148,10 @@ func attestPolicyHandler(c echo.Context) error {
 		passed = false
 	    }
 
+	    if runRules(claim, attest.Rules) == false {
+		passed = false
+	    }
+
 	    results = append(results, AttestationResult{
 		ElementID: id,
 		Intent: intentName,
@@ -160,7 +164,7 @@ func attestPolicyHandler(c echo.Context) error {
     return c.JSON(http.StatusOK, results)
 }
 
-func runRules(claim map[string]interface{}, rules []Rules) bool {
+func runRules(claim map[string]interface{}, rules []Rule) bool {
     if msg, ok := claim["error"].(string); ok && msg != "" {
 	return false
     }
@@ -227,16 +231,35 @@ func executePolicyHandler(c echo.Context) error {
 	return c.String(http.StatusInternalServerError, "Failed to fetch intents: "+err.Error())
     }
     defer resp.Body.Close()
+    
+   // var intentData struct {
+//	Intents []string `bson:"intents" json:"intents"`
+  //  }
+
     var intentData struct {
-	Intents []string `bson:"intents" json:"intents"`
+	Intents []struct {
+	    ItemID 	string 	`json:"itemid"`
+	    Name	string	`json:"name"`
+	}`json:"intents"`
     }
+
     if err := json.NewDecoder(resp.Body).Decode(&intentData); err != nil {
 	return c.String(http.StatusInternalServerError, "Failed to decode intents: "+err.Error())
     }
-    validIntents := make(map[string]struct{})
+
+    fmt.Printf("[DEBUG] intents from JANE: %v\n", intentData.Intents)
+
+    //validIntents := make(map[string]struct{})
+    //for _, i := range intentData.Intents {
+	//validIntents[i] = struct{}{}
+    //}
+ 
+    intentNameToID := make(map[string]string)
     for _, i := range intentData.Intents {
-	validIntents[i] = struct{}{}
+	intentNameToID[i.Name] = i.ItemID
     }
+
+    fmt.Printf("[DEBUG] intentNameToID = %+v\n", intentNameToID)
 
     var elementIDs []string
     elementIDs = append(elementIDs, policy.Collection.Items...)
@@ -262,26 +285,42 @@ func executePolicyHandler(c echo.Context) error {
     defer closeJaneSession(janeURL, sid)
 
     var results []AttestationResult
+
     for _, eid := range elementIDs {
 	for _, attest := range policy.Attestations {
-	    intentName := attest.Intent
-	    if _, ok := validIntents[intentName]; !ok {
+	    pid, ok := intentNameToID[attest.Intent]
+	    if !ok {
+		fmt.Printf("[ERROR] Intent not found on JANE: %s\n", attest.Intent)
 		results = append(results, AttestationResult{
 		    ElementID: 	eid,
-		    Intent: 	intentName,
+		    Intent: 	attest.Intent,
 		    Claim: 	map[string]string{"error": "Intent not found on JANE"},
 		    Passed: 	false,
 		})
 		continue
 	    }
 	    
-	    claim, err := janeRunAttestation(janeURL, eid, intentName, attest.Endpoint, sid)
+	    fmt.Printf("[ATTEST] Running attestation eid=%s pid=%s intent=%s endpoint=%s\n",
+		eid, pid, attest.Intent, attest.Endpoint,
+	    )
+	   
+	    claim, err := janeRunAttestation(janeURL, eid, pid, attest.Endpoint, sid)
 	    if err != nil {
-		results = append(results, AttestationResult{ElementID: eid, Intent: intentName, Claim: map[string]string{"error": err.Error()}, Passed: false})
+		results = append(results, AttestationResult{ElementID: eid, Intent: attest.Intent, Claim: map[string]string{"error": err.Error()}, Passed: false})
 		continue
 	   }
 	   passed := runRules(claim, attest.Rules)
-	   results = append(results, AttestationResult{ElementID: eid, Intent: intentName, Claim: claim, Passed: passed})
+	   
+	   if m, ok := claim["message"].(string); ok && m == "Not Found" {
+		passed = false
+	   }
+
+	   results = append(results, AttestationResult{
+		ElementID: eid,
+		Intent: attest.Intent,
+		Claim: claim,
+		Passed: passed,
+	   })
 	}
     }
 
