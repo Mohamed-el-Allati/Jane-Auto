@@ -198,10 +198,7 @@ func attestPolicyHandler(c echo.Context) error {
     }
     fmt.Printf("[attest] Completed attesting for policy: %s\n", policyName)
     return c.JSON(http.StatusOK, results)
-    fmt.Printf("[attest] Final results: %+v\n", results)
 }
-
-fmt.Printf("[attest] Final results: %+v\n", results)
 
 func runRules(claim map[string]interface{}, rules []Rule) bool {
     if msg, ok := claim["error"].(string); ok && msg != "" {
@@ -270,25 +267,18 @@ func executePolicyHandler(c echo.Context) error {
 
     janeURL := policy.Jane
    
+    fmt.Printf("[DEBUG] Fetching intents from: %s\n", janeURL+"/intents")
     resp, err := http.Get(janeURL + "/intents")
     if err != nil {
 	fmt.Printf("[ERROR] Failed to fetch intents: %v\n", err)
 	return c.String(http.StatusInternalServerError, "Failed to fetch intents: "+err.Error())
     }
     defer resp.Body.Close()
-    
-    fmt.Printf("[DEBUG] intentNameToID = %+v\n", intentNameToID)
-    fmt.Printf("[DEBUG] Number of intents from JANE: %d\n", len(intentData.Intents))
-    fmt.Printf("[DEBUG] Intent Map: %+v\n", intentNameToID)
 
     bodyBytes, _ := ioutil.ReadAll(resp.Body)
     fmt.Printf("[DEBUG] Raw intents response from JANE (status %d):\n%s\n", resp.StatusCode,  string(bodyBytes))
 
     resp.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
-
-   // var intentData struct {
-//	Intents []string `bson:"intents" json:"intents"`
-  //  }
 
     var intentData struct {
 	Intents []struct {
@@ -301,21 +291,20 @@ func executePolicyHandler(c echo.Context) error {
 	return c.String(http.StatusInternalServerError, "Failed to decode intents: "+err.Error())
     }
 
-    fmt.Printf("[DEBUG] intents from JANE: %v\n", intentData.Intents)
-
-    //validIntents := make(map[string]struct{})
-    //for _, i := range intentData.Intents {
-	//validIntents[i] = struct{}{}
-    //}
+    fmt.Printf("[DEBUG] intents from JANE: %d\n", len(intentData.Intents))
  
     intentNameToID := make(map[string]string)
     for _, i := range intentData.Intents {
+	fmt.Printf("[DEBUG] Intent - Name: '%s', ItemID: '%s'\n", i.Name, i.ItemID)
 	intentNameToID[i.Name] = i.ItemID
     }
+
+    fmt.Printf("[DEBUG] Intent map has %d entries\n", len(intentNameToID))
 
     var elementIDs []string
     elementIDs = append(elementIDs, policy.Collection.Items...)
     for _, name := range policy.Collection.Names {
+	fmt.Printf("[DEBUG] Looking for elements with name: %s\n", name)
 	ids, _ := janeGetElementsByName(name)
 	elementIDs = append(elementIDs, ids...)
     }
@@ -328,8 +317,9 @@ func executePolicyHandler(c echo.Context) error {
 	}
     }
     elementIDs = filtered
-    fmt.Printf("[attest] ElementIDs (filtered) is %v\n", elementIDs)
+    fmt.Printf("[DEBUG] ElementIDs (filtered): %v\n", elementIDs)
 
+    // Create jane session
     sid, err := createJaneSession(janeURL)
     if err != nil {
 	return c.String(http.StatusInternalServerError, "Failed to create a Jane session: "+err.Error())
@@ -344,6 +334,7 @@ func executePolicyHandler(c echo.Context) error {
 	for _, attest := range policy.Attestations {
 	    pid, ok := intentNameToID[attest.Intent]
 	    fmt.Printf("\n[ATTESTATION] Element: %s, Intent: %s, Found in map: %v, PID: %s\n", eid, attest.Intent, ok, pid)
+
 	    if !ok {
 		fmt.Printf("[ERROR] Intent not found on JANE: %s\n", attest.Intent)
 		results = append(results, AttestationResult{
@@ -361,11 +352,14 @@ func executePolicyHandler(c echo.Context) error {
 	   
 	    claim, err := janeRunAttestation(janeURL, eid, pid, attest.Endpoint, sid)
 	    if err != nil {
-		results = append(results, AttestationResult{ElementID: eid, Intent: attest.Intent, Claim: map[string]string{"error": err.Error()}, Passed: false})
+		results = append(results, AttestationResult{
+		    ElementID: eid, 
+		    Intent: attest.Intent, 
+		    Claim: map[string]string{"error": err.Error()}, 
+		    Passed: false})
 		continue
 	   }
 	   passed := runRules(claim, attest.Rules)
-	   
 	   if m, ok := claim["message"].(string); ok && m == "Not Found" {
 		passed = false
 	   }
@@ -380,27 +374,36 @@ func executePolicyHandler(c echo.Context) error {
     }
 
     fmt.Printf("\n=== FINISHED EXECUTE POLICY ===\n")
+    fmt.Printf("[DEBUG] Total results: %d\n", len(results))
+
     return c.JSON(http.StatusOK, map[string]interface{}{
 	"results":	results,
 	"count": 	len(results),
     })
 }
 
-func janeRunAttestation(janeURL, eid, pid, epn, sid string) (map[string]interface{}, error) {
+func janeRunAttestation(janeURL, elementid, pid, endpoint, sid string) (map[string]interface{}, error) {
     attestData := map[string]interface{}{
 	"eid": 		elementID,
-	"pid": 		attest.Intent,
+	"pid": 		pid,
 	"epn": 		endpoint,
 	"sid":		sid,
 	"parameters":	map[string]interface{}{},
     }
 
     body, _ := json.Marshal(attestData)
+    fmt.Printf("[DEBUG] Sending attestation request:\n%s\n", string(body))
+
     resp, err := http.Post(fmt.Sprintf("%s/attest", janeURL), "application/json", bytes.NewBuffer(body))
     if err != nil {
 	return nil, fmt.Errorf("attest call failed: %v", err)
     }
     defer resp.Body.Close()
+
+    respBody, _ := ioutil.ReadAll(resp.Body)
+    fmt.Printf("[DEBUG] JANE response status: %d, body: \n%s\n", resp.StatusCode, string(respBody))
+
+    resp.Body = ioutil.NopCloser(bytes.NewBuffer(respBody))
 
     var result map[string]interface{}
     if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -414,6 +417,8 @@ func debugJaneHandler(c echo.Context) error {
     port := config.ConfigData.Rest.Port
     fmt.Printf("[DEBUG] Config port: %s\n", port)
 
+    janeBaseURL := fmt.Sprintf("http://127.0.0.1:%s", port)
+
     elements, err := janeGetElementsByName("bobafet")
     if err != nil {
 	return c.JSON(500, map[string]interface{}{
@@ -422,19 +427,19 @@ func debugJaneHandler(c echo.Context) error {
 	})
     }
 
-    janeURL := fmt.Sprintf("http://127.0.0.1:%s", port)
     intentsResp, err := http.Get(janeBaseURL + "/intents")
     var intentsData interface{}
     if err == nil {
 	defer intentsResp.Body.Close()
-	json.NewDecoder(intentsResp.Body).Decode(&intentsData)
+	body, _ := ioutil.ReadAll(intentsResp.Body)
+	json.Unmarshal(body, &intentsData)
     }
 
     return c.JSON(200, map[string]interface{}{
 	"config_port": port,
 	"bobafet_elements": elements,
 	"jane_intents": intentsData,
-	"jane_url": janeURL,
+	"jane_url": janeBaseURL,
     })
 }
 
