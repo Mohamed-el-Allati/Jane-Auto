@@ -3,13 +3,14 @@ package main
 import (
     "encoding/json"
     "fmt"
+    "io/ioutil"
     "net/http"
     "time"
 
     "janeauto/config"
 )
 
-janeURL := config.ConfigData.Rest.Port
+//janeURL := config.ConfigData.Rest.Port
 
 func janeGet(path string, target interface{}) error {
     client := &http.Client{Timeout: 10*time.Second}
@@ -32,23 +33,34 @@ type returnElements struct {
 
 
 func janeGetElementsByName(name string) ([]string, error){
-    url := janeURL+"/elements/name/"+name
-    fmt.Printf(" getting URL: %v\n", url)
-    resp, err := http.Get(url)
+    janeURL := fmt.Sprintf("http://127.0.0.1:%s", config.ConfigData.Rest.Port)
+    url := janeURL+"/elements/name/" + name
+
+    fmt.Printf("[DEBUG] getting elements from URL: %s\n", url)
+
+    client := &http.Client{Timeout: 10 * time.Second}
+    resp, err := client.Get(url)
     if err != nil {
-	return nil, err
+	return nil, fmt.Errorf("failed to get elements: %v", err)
     }
     defer resp.Body.Close()
 
     fmt.Printf(" body is %v\n",resp.Body)
 
-    var es returnElements 
+    if resp.StatusCode != 200 {
+	body, _ := ioutil.ReadAll(resp.Body)
+	return nil, fmt.Errorf("JANE returned status %d: %s", resp.StatusCode, string(body))
+    }
 
-    if err := json.NewDecoder(resp.Body).Decode(&es); err != nil {
-        fmt.Printf("Decode error is %v\n",err.Error())
-	return nil, err
+    var result struct {
+	Elements []string	`json:"elements"`
+	Length	 int		`json:"length"`
+    }
+
+    if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	return nil, fmt.Errorf("Failed to decode response: %v", err)
     }
  
-    fmt.Printf("Returned element is %v\n",es.Elements)
-    return es.Elements, nil
+    fmt.Printf("[DEBUG] Found %d elements for name '%s': %v\n", result.Length, name, result.Elements)
+    return result.Elements, nil
 }

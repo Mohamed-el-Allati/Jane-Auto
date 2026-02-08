@@ -26,6 +26,7 @@ func main() {
 
     e.GET("/", homeHandler)
     e.GET("/policies", policiesHandler)
+    e.GET("/debug-jane", debugJaneHandler)
 
     e.POST("/execute/:policyName", executePolicyHandler)
 
