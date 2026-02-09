@@ -10,11 +10,9 @@ import (
     "janeauto/config"
 )
 
-//janeURL := config.ConfigData.Rest.Port
-
 func janeGet(path string, target interface{}) error {
     client := &http.Client{Timeout: 10*time.Second}
-    resp, err := client.Get(janeURL + path)
+    resp, err := client.Get (path)
     if err != nil {
 	return fmt.Errorf("request failed: %w", err)
     }
@@ -33,8 +31,8 @@ type returnElements struct {
 
 
 func janeGetElementsByName(name string) ([]string, error){
-    janeURL := fmt.Sprintf("http://127.0.0.1:%s", config.ConfigData.Rest.Port)
-    url := janeURL+"/elements/name/" + name
+    janeBaseURL := config.ConfigData.Jane.URL
+    url := janeBaseURL+"/elements/name/" + name
 
     fmt.Printf("[DEBUG] getting elements from URL: %s\n", url)
 

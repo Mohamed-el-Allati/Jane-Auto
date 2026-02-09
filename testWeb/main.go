@@ -3,6 +3,7 @@ package main
 import (
     "fmt"
     "log"
+
     "github.com/labstack/echo/v4"
     "github.com/labstack/echo/v4/middleware"
 
@@ -15,7 +16,7 @@ func main() {
     config.SetupConfiguration()
 
     fmt.Println("Mongo URI:", config.ConfigData.Database.Connection)
-    fmt.Println("JANE URL:", config.ConfigData.Rest.Port)
+    fmt.Println("JANE URL:", config.ConfigData.Jane.URL)
 
     connectDB(config.ConfigData.Database.Connection)
 
@@ -30,6 +31,6 @@ func main() {
 
     e.POST("/execute/:policyName", executePolicyHandler)
 
-    addr := fmt.Sprintf(":%s", config.ConfigData.Rest.Port)
+    addr := fmt.Sprintf(":%d", config.ConfigData.Rest.Port)
     log.Fatal(e.Start(addr))
 }

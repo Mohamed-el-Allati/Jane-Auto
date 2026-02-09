@@ -1,0 +1,14 @@
+system:
+  name: "JaneAuto"
+
+database:
+  connection: "mongodb://172.16.222.58:27017"
+  name: "testdb"
+
+jane:
+  url: "http://127.0.0.1:8520"
+
+rest:
+  port: 8080
+  listenOn: "0.0.0.0"
+  usehttp: true

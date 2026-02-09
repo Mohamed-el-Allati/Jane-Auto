@@ -10,6 +10,7 @@ import (
     "strings"
     "time"
     "github.com/labstack/echo/v4"
+
 )
 
 func homeHandler(c echo.Context) error {
@@ -86,118 +87,6 @@ type AttestationResult struct {
     Intent	string		`bson:"intent" json:"intent"`
     Claim	interface{}	`bson:"claim" json:"claim"`
     Passed	bool		`bson:"passed" json:"passed"`
-}
-
-func attestPolicyHandler(c echo.Context) error {
-    policyName := c.Param("policyName")
-    fmt.Printf("[attest] Start attesting policy: %s\n", policyName)
-
-    policy, err := dbGetPolicyByName(policyName)
-    if err != nil {
-	fmt.Printf("[attest][ERROR] unable to fetc policy: %v\n", err)
-	return c.String(http.StatusNotFound, "Policy not Found")
-    }
-    fmt.Printf("[attest] Loaded policy: %+v\n", policy)
-
-    resp, err := http.Get(janeURL + "/intents")
-    if err != nil {
-	return c.String(http.StatusInternalServerError, "Failed to fetch intents: "+err.Error())
-    }
-    defer resp.Body.Close()
-
-    var intentData struct {
-	Intents []struct {
-	    ItemID	string	`json:"itemid"`
-	    Name	string	`json:"name"`
-	}`json:"intents"`
-    }
-
-    if err := json.NewDecoder(resp.Body).Decode(&intentData); err != nil {
-	return c.String(http.StatusInternalServerError, "Failed to decode intents: "+err.Error())
-    }
-
-    fmt.Printf("[DEBUG] intents from JANE: %+v\n", intentData.Intents)
-
-    intentNameToID := make(map[string]string)
-    for _, i := range intentData.Intents {
-	intentNameToID[i.Name] = i.ItemID
-    }
-
-    fmt.Printf("[DEBUG] intentNameToID = %+v\n", intentNameToID)
-
-
-    sid, err := createJaneSession(policy.Jane)
-    if err != nil {
-	fmt.Printf("[attest][ERROR] Failed to create Jane session: %v\n", err)
-	return c.String(http.StatusInternalServerError, "Failed to create Jane session")
-    }
-    defer closeJaneSession(policy.Jane, sid)
-
-    var elementIDs []string
-    elementIDs = append(elementIDs, policy.Collection.Items...)
-    for _, name := range policy.Collection.Names {
-	fmt.Printf("[attest] Getting name %v\n",name)
-	ids, err := janeGetElementsByName(name)
-        fmt.Printf("[attest] Returned ids for name %v: %v\n",name, ids)
-	if err != nil {
-            fmt.Printf("[attest][ERROR]Error returned for name %v: %v\n", name, err)
-	} else {
-	    elementIDs = append(elementIDs, ids...)
-        }
-    }
-
-    elementIDs = unique(elementIDs)
-    fmt.Printf("[attest] ElementIDs is %v\n",elementIDs)
-
-    var results []AttestationResult
-
-    for _, eid := range elementIDs {
-	for _, attest := range policy.Attestations {
-
-	    pid, ok := intentNameToID[attest.Intent]
-	    if !ok {
-		fmt.Printf("[attest][ERROR] Intent not found on Jane: %s\n", attest.Intent)
-		results = append(results, AttestationResult{
-		    ElementID: 	eid,
-		    Intent:	attest.Intent,
-		    Claim:	map[string]{"error": "Intent not found on JANE"},
-		    Passed:	false,
-		})
-		continue
-	    }
-	    fmt.Printf("[attest] Running attestation eid=%s pid=%s intent=%s endpoint=%s\n",
-		eid, pid, attest.Intent, attest.Endpoint,
-	    )
-
-	    claim, err := janeRunAttestation(policy.Jane, eid, pid, attest.Endpoint, sid)
-	    if err != nil {
-		fmt.Printf("[attest][ERROR] Attestation failed for eid=%s, intent=%s: %v\n", eid, attest.Intent, err)
-		results = append(results, AttestationResult{
-		    ElementID:	eid,
-		    Intent:	attest.Intent,
-		    Claim:	map[string]string{"error": err.Error()},
-		    Passed:	false,
-		})
-		continue
-	    }
-
-	    fmt.Printf("[attest] Claim received for eid=%s intent=%s: %+v\n", eid, attest.Intent, claim)
-
-	    passed := runRules(claim, attest.Rules)
-	    if m, ok := claim["message"].(string); ok && m == "Not Found" {
-		passed = false
-	    }
-
-	    results = append(results, AttestationResult{
-		ElementID: eid,
-		Intent: attest.Intent,
-		Claim: claim,
-		Passed: passed,
-	    })
-	}
-    }
-    fmt.Printf("[attest] Completed attesting for policy: %s\n", policyName)
-    return c.JSON(http.StatusOK, results)
 }
 
 func runRules(claim map[string]interface{}, rules []Rule) bool {
@@ -281,10 +170,7 @@ func executePolicyHandler(c echo.Context) error {
     resp.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
 
     var intentData struct {
-	Intents []struct {
-	    ItemID 	string 	`json:"itemid"`
-	    Name	string	`json:"name"`
-	}`json:"intents"`
+	Intents []string `json:"intents"`
     }
 
     if err := json.NewDecoder(resp.Body).Decode(&intentData); err != nil {
@@ -294,9 +180,9 @@ func executePolicyHandler(c echo.Context) error {
     fmt.Printf("[DEBUG] intents from JANE: %d\n", len(intentData.Intents))
  
     intentNameToID := make(map[string]string)
-    for _, i := range intentData.Intents {
-	fmt.Printf("[DEBUG] Intent - Name: '%s', ItemID: '%s'\n", i.Name, i.ItemID)
-	intentNameToID[i.Name] = i.ItemID
+    for _, intentName := range intentData.Intents {
+	normalized := strings.ReplaceAll(intentName, " ", "")
+	intentNameToID[normalized] = intentName
     }
 
     fmt.Printf("[DEBUG] Intent map has %d entries\n", len(intentNameToID))
@@ -350,7 +236,7 @@ func executePolicyHandler(c echo.Context) error {
 		eid, pid, attest.Intent, attest.Endpoint,
 	    )
 	   
-	    claim, err := janeRunAttestation(janeURL, eid, pid, attest.Endpoint, sid)
+	    claimID, err := janeRunAttestation(janeURL, eid, pid, attest.Endpoint, sid)
 	    if err != nil {
 		results = append(results, AttestationResult{
 		    ElementID: eid, 
@@ -358,7 +244,18 @@ func executePolicyHandler(c echo.Context) error {
 		    Claim: map[string]string{"error": err.Error()}, 
 		    Passed: false})
 		continue
+	    }
+	    
+	    claim, err := janeGetClaim(janeURL, claimID)
+	    if err != nil {
+		results = append(results, AttestationResult {
+		    ElementID: eid,
+		    Intent: attest.Intent,
+		    Claim: map[string]string{"error": err.Error()},
+		    Passed: false})
+		continue
 	   }
+
 	   passed := runRules(claim, attest.Rules)
 	   if m, ok := claim["message"].(string); ok && m == "Not Found" {
 		passed = false
@@ -382,9 +279,9 @@ func executePolicyHandler(c echo.Context) error {
     })
 }
 
-func janeRunAttestation(janeURL, elementid, pid, endpoint, sid string) (map[string]interface{}, error) {
+func janeRunAttestation(janeURL, elementid, pid, endpoint, sid string) (string, error) {
     attestData := map[string]interface{}{
-	"eid": 		elementID,
+	"eid": 		elementid,
 	"pid": 		pid,
 	"epn": 		endpoint,
 	"sid":		sid,
@@ -396,28 +293,48 @@ func janeRunAttestation(janeURL, elementid, pid, endpoint, sid string) (map[stri
 
     resp, err := http.Post(fmt.Sprintf("%s/attest", janeURL), "application/json", bytes.NewBuffer(body))
     if err != nil {
-	return nil, fmt.Errorf("attest call failed: %v", err)
+	return "", fmt.Errorf("attest call failed: %v", err)
     }
     defer resp.Body.Close()
 
-    respBody, _ := ioutil.ReadAll(resp.Body)
-    fmt.Printf("[DEBUG] JANE response status: %d, body: \n%s\n", resp.StatusCode, string(respBody))
+    rawBody, _ := ioutil.ReadAll(resp.Body)
+    fmt.Printf("[DEBUG] Attest response status: %d:\n%s\n", resp.StatusCode, string(rawBody))
 
-    resp.Body = ioutil.NopCloser(bytes.NewBuffer(respBody))
+    claimID := strings.TrimSpace(string(rawBody))
 
-    var result map[string]interface{}
-    if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-	return nil, fmt.Errorf("decode error: %v", err)
+    if strings.Contains(strings.ToLower(claimID), "error") {
+	return "", fmt.Errorf("JANE error: %s", claimID)
     }
 
-    return result, nil
+    return claimID, nil
+}
+
+func janeGetClaim(janeURL, claimID string) (map[string]interface{}, error) {
+    endpoints := []string{
+	fmt.Sprintf("%s/claim/%s", janeURL, claimID), 
+	fmt.Sprintf("%s/claims/%s",janeURL, claimID),
+	fmt.Sprintf("%s/session/claims/%s", janeURL, claimID),
+    }
+
+    for _, url := range endpoints {
+	fmt.Printf("[DEBUG] Trying out claim endpoint: %s\n", url)
+	resp, err := http.Get(url)
+	if err == nil && resp.StatusCode == 200 {
+	    defer resp.Body.Close()
+
+	    var claim map[string]interface{}
+	    if err := json.NewDecoder(resp.Body).Decode(&claim); err != nil {
+		return nil, fmt.Errorf("failed to decode claim: %v", err)
+	    }
+	    return claim, nil
+	}
+    }
+
+    return nil, fmt.Errorf("could not retrieve claim %s from any known endpoint", claimID)
 }
 
 func debugJaneHandler(c echo.Context) error {
-    port := config.ConfigData.Rest.Port
-    fmt.Printf("[DEBUG] Config port: %s\n", port)
-
-    janeBaseURL := fmt.Sprintf("http://127.0.0.1:%s", port)
+    janeBaseURL := "http://localhost:8520"
 
     elements, err := janeGetElementsByName("bobafet")
     if err != nil {
@@ -436,7 +353,6 @@ func debugJaneHandler(c echo.Context) error {
     }
 
     return c.JSON(200, map[string]interface{}{
-	"config_port": port,
 	"bobafet_elements": elements,
 	"jane_intents": intentsData,
 	"jane_url": janeBaseURL,

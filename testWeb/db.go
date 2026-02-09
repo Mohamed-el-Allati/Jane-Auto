@@ -11,7 +11,6 @@ import (
     "go.mongodb.org/mongo-driver/mongo/readpref"
     "go.mongodb.org/mongo-driver/bson"
 
-    "janeauto/config"
 )
 
 var client *mongo.Client
