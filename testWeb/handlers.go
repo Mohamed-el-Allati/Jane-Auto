@@ -179,13 +179,18 @@ func executePolicyHandler(c echo.Context) error {
 
     fmt.Printf("[DEBUG] intents from JANE: %d\n", len(intentData.Intents))
  
-    intentNameToID := make(map[string]string)
+    intentNameToItemID := make(map[string]string)
     for _, intentName := range intentData.Intents {
-	normalized := strings.ReplaceAll(intentName, " ", "")
-	intentNameToID[normalized] = intentName
+	normalizedName := strings.ReplaceAll(intentName, " ", "")
+	itemID, err := janeGetIntentItemID(janeURL, normalizedName)
+	if err != nil {
+	    // logs the error but continues.
+	    fmt.Printf("[WARNING] Could not get ItemID for intent '%s': %v\n", normalizedName, err)
+	}else {
+	    intentNameToItemID[normalizedName] = itemID // map which stores uuid, not the name
+	}
     }
-
-    fmt.Printf("[DEBUG] Intent map has %d entries\n", len(intentNameToID))
+    fmt.Printf("[DEBUG] Intent map has %d entries\n", len(intentNameToItemID))
 
     var elementIDs []string
     elementIDs = append(elementIDs, policy.Collection.Items...)
@@ -218,8 +223,11 @@ func executePolicyHandler(c echo.Context) error {
 
     for _, eid := range elementIDs {
 	for _, attest := range policy.Attestations {
-	    pid, ok := intentNameToID[attest.Intent]
-	    fmt.Printf("\n[ATTESTATION] Element: %s, Intent: %s, Found in map: %v, PID: %s\n", eid, attest.Intent, ok, pid)
+	    // looks up the itemid, not the name
+	    normalizedPolicyIntent := strings.ReplaceAll(attest.Intent, " ", "")
+	    pid, ok := intentNameToItemID[normalizedPolicyIntent] // pid is now the uuid
+
+	    fmt.Printf("\n[ATTESTATION] Element: %s, Intent: %s -> Found ItemID: %s\n", eid, attest.Intent, pid)
 
 	    if !ok {
 		fmt.Printf("[ERROR] Intent not found on JANE: %s\n", attest.Intent)
@@ -235,13 +243,14 @@ func executePolicyHandler(c echo.Context) error {
 	    fmt.Printf("[ATTEST] Running attestation eid=%s pid=%s intent=%s endpoint=%s\n",
 		eid, pid, attest.Intent, attest.Endpoint,
 	    )
-	   
-	    claimID, err := janeRunAttestation(janeURL, eid, pid, attest.Endpoint, sid)
+	    
+	    // passed the itemid to the attestation function
+	    claimID, err := janeRunAttestation(janeURL, eid, pid, attest.Endpoint, sid) // again, pid here is the uuid
 	    if err != nil {
 		results = append(results, AttestationResult{
 		    ElementID: eid, 
 		    Intent: attest.Intent, 
-		    Claim: map[string]string{"error": err.Error()}, 
+		    Claim: map[string]interface{}{"error": err.Error()}, 
 		    Passed: false})
 		continue
 	    }
@@ -251,7 +260,7 @@ func executePolicyHandler(c echo.Context) error {
 		results = append(results, AttestationResult {
 		    ElementID: eid,
 		    Intent: attest.Intent,
-		    Claim: map[string]string{"error": err.Error()},
+		    Claim: map[string]interface{}{"error": err.Error()},
 		    Passed: false})
 		continue
 	   }
@@ -310,27 +319,35 @@ func janeRunAttestation(janeURL, elementid, pid, endpoint, sid string) (string, 
 }
 
 func janeGetClaim(janeURL, claimID string) (map[string]interface{}, error) {
-    endpoints := []string{
-	fmt.Sprintf("%s/claim/%s", janeURL, claimID), 
-	fmt.Sprintf("%s/claims/%s",janeURL, claimID),
-	fmt.Sprintf("%s/session/claims/%s", janeURL, claimID),
-    }
+    url := fmt.Sprintf("%s/claims/%s", janeURL, claimID)
+    fmt.Printf("[DEBUG] Fetching claim from: %s\n", url)
 
-    for _, url := range endpoints {
-	fmt.Printf("[DEBUG] Trying out claim endpoint: %s\n", url)
+    maxAttempts := 30
+    for attempt := 1; attempt <= maxAttempts; attempt++ {
 	resp, err := http.Get(url)
-	if err == nil && resp.StatusCode == 200 {
-	    defer resp.Body.Close()
+	if err != nil {
+	    return nil, fmt.Errorf("failed to get claim: %v", err)
+	}
+	defer resp.Body.Close()
 
+	fmt.Printf("[DEBUG] Attempt %d: Status %d\n", attempt, resp.StatusCode)
+
+	if resp.StatusCode == 200 {
 	    var claim map[string]interface{}
 	    if err := json.NewDecoder(resp.Body).Decode(&claim); err != nil {
-		return nil, fmt.Errorf("failed to decode claim: %v", err)
+		return nil, fmt.Errorf("Failed to decode claim: %v", err)
 	    }
+	    fmt.Printf("[DEBUG] Successfully retrieved claim!\n")
 	    return claim, nil
+	}else if resp.StatusCode == 404 {
+	   time.Sleep(100 * time.Millisecond)
+	   continue
+	}else {
+	   body, _ := ioutil.ReadAll(resp.Body)
+	   return nil, fmt.Errorf("claim endpoint returned status %d: %s", resp.StatusCode, string(body))
 	}
     }
-
-    return nil, fmt.Errorf("could not retrieve claim %s from any known endpoint", claimID)
+    return nil, fmt.Errorf("Claim %s was not ready after %d attempts", claimID, maxAttempts)
 }
 
 func debugJaneHandler(c echo.Context) error {
