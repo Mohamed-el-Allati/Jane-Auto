@@ -87,16 +87,48 @@ type AttestationResult struct {
     Intent	string		`bson:"intent" json:"intent"`
     Claim	interface{}	`bson:"claim" json:"claim"`
     Passed	bool		`bson:"passed" json:"passed"`
+    RuleResults	[]map[string]interface{}	`bson:"rule_results" json:"rule_results"`
+    ClaimID	string		`bson:"claim_id" json:"claim_id"`
 }
 
-func runRules(claim map[string]interface{}, rules []Rule) bool {
-    if msg, ok := claim["error"].(string); ok && msg != "" {
-	return false
+func runRules(janeURL, claimID, sessionID string, rules []Rule) (bool, []map[string]interface{}){
+    allPassed := true
+    ruleResults := []map[string]interface{}{}
+
+    for _, rule := range rules {
+	fmt.Printf("[DEBUG] Running rule: %s on claim %s\n", rule.Name, claimID)
+
+	// This calls the function "janeRunVerification" in janeRest.go
+	resultID, passed, err := janeRunVerification(janeURL, claimID, rule.Name, sessionID)
+	if err != nil {
+	    fmt.Printf("[ERROR] Failed to run rule %s: %v\n", rule.Name, err)
+	    ruleResults = append(ruleResults, map[string]interface{}{
+		"rule": rule.Name,
+		"passed": false,
+		"error": err.Error(),
+	    })
+	    allPassed = false
+	    continue
+	}
+
+	// this calls the function "janeRegisterResultWithSession" in janeRest.go
+	if err := janeRegisterResultWithSession(janeURL, sessionID, resultID); err != nil {
+	    fmt.Printf("[WARNING] Failed to register result %s: %v\n", resultID, err)
+	    // continue anyway
+	}
+
+	ruleResults = append(ruleResults, map[string]interface{}{
+	    "rule":	 rule.Name,
+	    "passed":	 passed,
+	    "result_id": resultID,
+	})
+
+	if !passed {
+	    allPassed = false
+	}
     }
-    if msg, ok := claim["message"].(string); ok && (msg == "Not Found" || strings.Contains(strings.ToLower(msg), "error")) {
-	return false
-    }
-    return true
+
+    return allPassed, ruleResults
 }
 
 func unique(items []string) []string {
@@ -215,7 +247,6 @@ func executePolicyHandler(c echo.Context) error {
     if err != nil {
 	return c.String(http.StatusInternalServerError, "Failed to create a Jane session: "+err.Error())
     }
-    defer closeJaneSession(janeURL, sid)
 
     var results []AttestationResult
 
@@ -254,7 +285,11 @@ func executePolicyHandler(c echo.Context) error {
 		    Passed: false})
 		continue
 	    }
-	    
+ 
+	    if err := janeRegisterClaimWithSession(janeURL, sid, claimID); err != nil {
+		fmt.Printf("[WARNING] FAiled to register claim with session: %v\n", err)
+	    }
+
 	    claim, err := janeGetClaim(janeURL, claimID)
 	    if err != nil {
 		results = append(results, AttestationResult {
@@ -265,7 +300,7 @@ func executePolicyHandler(c echo.Context) error {
 		continue
 	   }
 
-	   passed := runRules(claim, attest.Rules)
+	   passed, ruleResults := runRules(janeURL, claimID, sid, attest.Rules)
 	   if m, ok := claim["message"].(string); ok && m == "Not Found" {
 		passed = false
 	   }
@@ -275,6 +310,8 @@ func executePolicyHandler(c echo.Context) error {
 		Intent: attest.Intent,
 		Claim: claim,
 		Passed: passed,
+		RuleResults: ruleResults,
+		ClaimID: claimID,
 	   })
 	}
     }
@@ -282,6 +319,7 @@ func executePolicyHandler(c echo.Context) error {
     fmt.Printf("\n=== FINISHED EXECUTE POLICY ===\n")
     fmt.Printf("[DEBUG] Total results: %d\n", len(results))
 
+    closeJaneSession(janeURL, sid)
     return c.JSON(http.StatusOK, map[string]interface{}{
 	"results":	results,
 	"count": 	len(results),
@@ -309,7 +347,17 @@ func janeRunAttestation(janeURL, elementid, pid, endpoint, sid string) (string, 
     rawBody, _ := ioutil.ReadAll(resp.Body)
     fmt.Printf("[DEBUG] Attest response status: %d:\n%s\n", resp.StatusCode, string(rawBody))
 
-    claimID := strings.TrimSpace(string(rawBody))
+    var result struct {
+	ItemID	string	`json:"itemid"`
+	Error	string	`json:"error"`
+    }
+    if err := json.Unmarshal(rawBody, &result); err != nil {
+	return "", fmt.Errorf("failed to parse attest response: %v", err)
+    }
+    if result.Error != "" {
+	return "", fmt.Errorf("JANE error: %s", result.Error)
+    }
+    claimID := result.ItemID
 
     if strings.Contains(strings.ToLower(claimID), "error") {
 	return "", fmt.Errorf("JANE error: %s", claimID)
@@ -319,35 +367,40 @@ func janeRunAttestation(janeURL, elementid, pid, endpoint, sid string) (string, 
 }
 
 func janeGetClaim(janeURL, claimID string) (map[string]interface{}, error) {
-    url := fmt.Sprintf("%s/claims/%s", janeURL, claimID)
-    fmt.Printf("[DEBUG] Fetching claim from: %s\n", url)
+    endpoints := []string {
+	fmt.Sprintf("%s/claim/%s", janeURL, claimID),
+	fmt.Sprintf("%s/claims/%s", janeURL, claimID),
+    }
+    for _, url := range endpoints {
+	fmt.Printf("[DEBUG] Trying claim endpoint: %s\n", url)
 
-    maxAttempts := 30
-    for attempt := 1; attempt <= maxAttempts; attempt++ {
-	resp, err := http.Get(url)
-	if err != nil {
-	    return nil, fmt.Errorf("failed to get claim: %v", err)
-	}
-	defer resp.Body.Close()
-
-	fmt.Printf("[DEBUG] Attempt %d: Status %d\n", attempt, resp.StatusCode)
-
-	if resp.StatusCode == 200 {
-	    var claim map[string]interface{}
-	    if err := json.NewDecoder(resp.Body).Decode(&claim); err != nil {
-		return nil, fmt.Errorf("Failed to decode claim: %v", err)
+    	maxAttempts := 60 // 6 second grace
+    	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	    resp, err := http.Get(url)
+	    if err != nil {
+		return nil, fmt.Errorf("failed to get claim: %v", err)
 	    }
-	    fmt.Printf("[DEBUG] Successfully retrieved claim!\n")
-	    return claim, nil
-	}else if resp.StatusCode == 404 {
-	   time.Sleep(100 * time.Millisecond)
-	   continue
-	}else {
-	   body, _ := ioutil.ReadAll(resp.Body)
-	   return nil, fmt.Errorf("claim endpoint returned status %d: %s", resp.StatusCode, string(body))
+	    defer resp.Body.Close()
+
+	    fmt.Printf("[DEBUG] Attempt %d: Status %d\n", attempt, resp.StatusCode)
+
+	    if resp.StatusCode == 200 {
+		var claim map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&claim); err != nil {
+		    return nil, fmt.Errorf("Failed to decode claim: %v", err)
+	    	}
+	    	fmt.Printf("[DEBUG] Successfully retrieved claim from %s!\n", url)
+	    	return claim, nil
+	     }else if resp.StatusCode == 404 {
+	   	time.Sleep(100 * time.Millisecond)
+	   	continue
+	     }else {
+	   	// try the next endpoint
+	   	break
+	     }
 	}
     }
-    return nil, fmt.Errorf("Claim %s was not ready after %d attempts", claimID, maxAttempts)
+    return nil, fmt.Errorf("Claim %s was not found after trying all the endpoints", claimID)
 }
 
 func debugJaneHandler(c echo.Context) error {
@@ -375,6 +428,45 @@ func debugJaneHandler(c echo.Context) error {
 	"jane_url": janeBaseURL,
     })
 }
+
+func debugAttestation(c echo.Context) error {
+    janeURL := "http://localhost:8520"
+
+    sid, err := createJaneSession(janeURL)
+    if err != nil {
+	return c.JSON(500, map[string]string{"error": err.Error()})
+    }
+
+    attestData := map[string]interface{}{
+	"eid": "2d1e8307-3987-4bcf-a182-2b3504394a4e",
+	"pid": "std::intent::sys::info",
+	"epn": "tarzan",
+	"sid": sid,
+	"parameters": map[string]interface{}{},
+    }
+
+    body, _ := json.Marshal(attestData)
+    resp, err := http.Post(janeURL+"/attest", "application/json", bytes.NewBuffer(body))
+    if err != nil {
+	return c.JSON(500, map[string]string{"error": err.Error()})
+    }
+    defer resp.Body.Close()
+
+    var result struct {
+	ItemID	string	`json:"itemid"`
+	Error	string	`json:"error"`
+    }
+    json.NewDecoder(resp.Body).Decode(&result)
+
+    return c.JSON(200, map[string]interface{}{
+	"session_id": 	sid,
+	"claim_id":	result.ItemID,
+	"status":	resp.StatusCode,
+	"error":	result.Error,
+    })
+}
+
+
 
 
 
