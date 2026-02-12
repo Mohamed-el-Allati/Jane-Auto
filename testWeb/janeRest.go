@@ -7,7 +7,6 @@ import (
     "io/ioutil"
     "net/http"
     "time"
-    "strings"
 
     "janeauto/config"
 )
@@ -121,7 +120,7 @@ func janeRunVerification(janeURL, claimID, ruleName, sessionID string) (string, 
 
     var result struct {
 	ItemID	string	`json:"itemid"`
-	Result	map[string]interface{}	`json:"result"`
+	Result	int	`json:"result"`
 	Error	string	`json:"error"`
     }
 
@@ -134,79 +133,8 @@ func janeRunVerification(janeURL, claimID, ruleName, sessionID string) (string, 
     }
 
     //determines whether verification passed
-    passed := false
-    if result.Result != nil {
-	if value, ok := result.Result["passed"]; ok {
-	    if boolValue, ok := value.(bool); ok {
-		passed = boolValue
-	    }
-	} else if value, ok := result.Result["value"]; ok {
-	    if strValue, ok := value.(string); ok && strings.ToUpper(strValue) == "PASSED" {
-		passed = true
-	   }
-	}
-    }
+    passed := (result.Result == 0)
 
     return result.ItemID, passed, nil
-}
-
-func janeRegisterClaimWithSession(janeURL, sessionID, claimID string) error {
-    url := fmt.Sprintf("%s/session/%s/claim/%s", janeURL, sessionID, claimID)
-    fmt.Printf("[DEBUG] Registering claim with session: %s\n", url)
-
-    req, err := http.NewRequest("PUT", url, nil)
-    if err != nil {
-	return fmt.Errorf("failed to register claim: %v", err)
-    }
-
-    resp, err := http.DefaultClient.Do(req)
-    if err != nil {
-	return fmt.Errorf("failed to register claim: %v", err)
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode == 200 || resp.StatusCode == 201 {
-	fmt.Printf("[DEBUG] Successfully registered claim %s with session %s\n", claimID, sessionID)
-	return nil
-    }
-
-    // read error body for debugging
-    body, _ := ioutil.ReadAll(resp.Body)
-    errorMsg := string(body)
-    if errorMsg == "" {
-	errorMsg = resp.Status
-    }
-
-    return fmt.Errorf("failed to register claim (status %d): %s", resp.StatusCode, errorMsg)
-}
-
-func janeRegisterResultWithSession(janeURL, sessionID, resultID string) error {
-    url := fmt.Sprintf("%s/session/%s/result/%s", janeURL, sessionID, resultID)
-    fmt.Printf("[DEBUG] Registering result with session: %s\n", url)
-
-    req, err := http.NewRequest("PUT", url, nil)
-    if err != nil {
-	return fmt.Errorf("failed to create request: %v", err)
-    }
-
-    resp, err := http.DefaultClient.Do(req)
-    if err != nil {
-	return fmt.Errorf("failed to register result: %v", err)
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode == 200 || resp.StatusCode == 201 {
-	fmt.Printf("[DEBUG] Successfully registered result %s with session %s\n", resultID, sessionID)
-
-	return nil
-    }
-
-    body, _ := ioutil.ReadAll(resp.Body)
-    errorMsg := string(body)
-    if errorMsg == "" {
-	errorMsg = resp.Status
-    }
-
-    return fmt.Errorf("failed to register result (status %d): %s", resp.StatusCode, errorMsg)
 }
 
