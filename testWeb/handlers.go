@@ -43,15 +43,15 @@ func homeHandler(c echo.Context) error {
 	<style>
 		* { margin: 0; padding: 0; box-sizing: border-box; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
 		body { background: #f4f6f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
-		.container { max-width: 900px; width: 100%; }
+		.container { max-width: 900px; width: 100%%; }
 		h1 { color: #1e293b; margin-bottom: 0.5rem; font-weight: 600; }
 		.subtitle { color: #475569; margin-bottom: 2rem; font-size: 1.1rem; }
 		.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 40px; }
 		.stat-card { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); transition: transform 0.2s; }
 		.stat-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); }
 		.stat-number { font-size: 2.5rem; font-weight: 700; color: #0f172a; line-height: 1.2; }
-		.stat-label { color: #64748b; text-transform: uppercase; letter-spacing: 0.5em; font-size: 0.875rem; margin-top: 8px; }
-		.btn { display: inline.block; background: #2563eb; color: white; padding: 14px 28px; border-radius: 40px; text-decoration: none; font-weight: 500, font-size: 1.125rem; border: none; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3); transition: background 0.2s, transform 0.1s; }
+		.stat-label { color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.875rem; margin-top: 8px; }
+		.btn { display: inline-block; background: #2563eb; color: white; padding: 14px 28px; border-radius: 40px; text-decoration: none; font-weight: 500; font-size: 1.125rem; border: none; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3); transition: background 0.2s, transform 0.1s; }
 		.btn:hover { background: #1d4ed8; transform: scale(1.02); }
 		.btn:active { transform: scale(0.98); }
 		.footer { margin-top: 40px; color: #64748b; font-size: 0.875rem; text-align: center; }
@@ -93,14 +93,19 @@ func homeHandler(c echo.Context) error {
 
 func attestFormHandler(c echo.Context) error {
 	policies, err := db.GetAllPolicies()
+	fmt.Printf("[DEBUG] attestFormHandler: retrieved %d policies, error: %v\n", len(policies), err)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Failed to load policies")
+	}
+	if len(policies) == 0 {
+		return c.String(http.StatusOK, "No policies found in database.")
 	}
 
 	var options strings.Builder
 	for _, p := range policies {
 		options.WriteString(fmt.Sprintf(`<option value="%s">%s</option>`, p.Name, p.Name))
 	}
+	fmt.Printf("[DEBUG] Options HTML: %s\n", options.String())
 
 	html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -109,12 +114,12 @@ func attestFormHandler(c echo.Context) error {
 	<style>
 		* { margin: 0; padding: 0; box-sizing: border-box; font-family: system-ui, sans-serif; }
 		body { background: #f4f6f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
-		.card { background: white; border-radius: 24px; padding: 40px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); max-width: 500px; width: 100%; }
+		.card { background: white; border-radius: 24px; padding: 40px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); max-width: 500px; width: 100%%; }
 		h2 { color: #1e293b; margin-bottom: 24px; font-weight: 600; }
 		label { display: block; margin-bottom: 8px; color: #475569; font-weight: 500; }
-		select { width: 100%; padding: 12px 16px; border: 1px solid #cbd5e1; border-radius: 12px; font-size: 1rem; margin-bottom: 24px; background: white; cursor: pointer;  }
+		select { width: 100%%; padding: 12px 16px; border: 1px solid #cbd5e1; border-radius: 12px; font-size: 1rem; margin-bottom: 24px; background: white; cursor: pointer;  }
 		select:focus { outline: 2px solid #2563eb; border-control: transparent; }
-		.btn { background: #2563eb; color: white; padding: 12px 24px; border: none; border-radius: 4 0px; font-size: 1rem; font-weight; 500; cursor: pointer; width: 100%; transition: background 0.2s; }
+		.btn { background: #2563eb; color: white; padding: 12px 24px; border: none; border-radius: 4 0px; font-size: 1rem; font-weight; 500; cursor: pointer; width: 100%%; transition: background 0.2s; }
 		.btn:hover { background: #1d4ed8; }
 		.back-link { display: block; margin-top: 24px; text-align: center; color: #64748b; text-decoration: none; }
 		.back-link:hover { color: #2563eb; }
@@ -171,8 +176,8 @@ func attestRunHandler(c echo.Context) error {
 			claimShort = claimShort[:8] + "..."
 		}
 
-		tableRows.WriteString(fmt.Sprintf(`
-		<tr class ="%s">
+		tableRows.WriteString(fmt.Sprintf(
+		`<tr class ="%s">
 			<td>%s</td>
 			<td>%s</td>
 			<td>%t</td>
@@ -190,7 +195,7 @@ func attestRunHandler(c echo.Context) error {
 		.container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 24px; padding: 32px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); }
 		h2 { color: #1e293b; margin-bottom: 8px; }
 		.policy-name { color: #2563eb; font-weight: 500; margin-bottom: 24px; }
-		table { width: 100%; border-collapse: collapse; margin-top: 24px; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1); }
+		table { width: 100%%; border-collapse: collapse; margin-top: 24px; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1); }
 		th { background: #f8fafc; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; padding: 16px 12px; text-align: left; }
 		td { padding: 14px 12px; border-bottom: 1px solid #e2e8f0; }
 		tr.pass { background-color: #f0fdf4; }
