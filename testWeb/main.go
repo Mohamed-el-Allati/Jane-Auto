@@ -9,6 +9,7 @@ import (
 
 	"janeauto/config"
 	"janeauto/db"
+	"janeauto/web"
 )
 
 func main() {
@@ -26,13 +27,13 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
-	e.GET("/", homeHandler)
-	e.GET("/attest", attestFormHandler)
-	e.GET("/policies", policiesHandler)
-	e.GET("/debug-jane", debugJaneHandler)
+	e.GET("/", web.HomeHandler)
+	e.GET("/attest", web.AttestFormHandler)
+	e.GET("/policies", web.PoliciesHandler)
+	e.GET("/debug-jane", web.DebugJaneHandler)
 
-	e.POST("/attest/run", attestRunHandler)
-	e.POST("/execute/:policyName", executePolicyHandler)
+	e.POST("/attest/run", web.AttestRunHandler)
+	e.POST("/execute/:policyName", web.ExecutePolicyHandler)
 
 	addr := fmt.Sprintf(":%d", config.ConfigData.Rest.Port)
 	log.Fatal(e.Start(addr))

@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"encoding/json"
@@ -14,7 +14,7 @@ import (
 	"janeauto/attestor"
 )
 
-func homeHandler(c echo.Context) error {
+func HomeHandler(c echo.Context) error {
 	// Fetches all policies to compute the stats
 	policies, err := db.GetAllPolicies()
 	if err != nil {
@@ -91,7 +91,7 @@ func homeHandler(c echo.Context) error {
 	return c.HTML(http.StatusOK, html)
 }
 
-func attestFormHandler(c echo.Context) error {
+func AttestFormHandler(c echo.Context) error {
 	policies, err := db.GetAllPolicies()
 	fmt.Printf("[DEBUG] attestFormHandler: retrieved %d policies, error: %v\n", len(policies), err)
 	if err != nil {
@@ -144,7 +144,7 @@ func attestFormHandler(c echo.Context) error {
 	return c.HTML(http.StatusOK, html)
 }
 
-func attestRunHandler(c echo.Context) error {
+func AttestRunHandler(c echo.Context) error {
 	policyName := c.FormValue("policy")
 	if policyName == "" {
 		return c.String(http.StatusBadRequest, "No policy selected")
@@ -237,7 +237,7 @@ func attestRunHandler(c echo.Context) error {
 	return c.HTML(http.StatusOK, html)
 }
 
-func policiesHandler(c echo.Context) error {
+func PoliciesHandler(c echo.Context) error {
 	policies, err := db.GetAllPolicies()
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Error retrieving policies: "+err.Error())
@@ -275,41 +275,7 @@ func policiesHandler(c echo.Context) error {
 	return c.HTML(http.StatusOK, html.String())
 }
 
-func runRules(janeURL, claimID, sessionID string, rules []models.Rule) (bool, []map[string]interface{}) {
-	allPassed := true
-	ruleResults := []map[string]interface{}{}
-
-	for _, rule := range rules {
-		fmt.Printf("[DEBUG] Running rule: %s on claim %s\n", rule.Name, claimID)
-
-		// This calls the function "janeRunVerification" in jane.go
-		resultID, passed, err := jane.RunVerification(janeURL, claimID, rule.Name, sessionID)
-		if err != nil {
-			fmt.Printf("[ERROR] Failed to run rule %s: %v\n", rule.Name, err)
-			ruleResults = append(ruleResults, map[string]interface{}{
-				"rule":   rule.Name,
-				"passed": false,
-				"error":  err.Error(),
-			})
-			allPassed = false
-			continue
-		}
-
-		ruleResults = append(ruleResults, map[string]interface{}{
-			"rule":      rule.Name,
-			"passed":    passed,
-			"result_id": resultID,
-		})
-
-		if !passed {
-			allPassed = false
-		}
-	}
-
-	return allPassed, ruleResults
-}
-
-func executePolicyHandler(c echo.Context) error {
+func ExecutePolicyHandler(c echo.Context) error {
 	policyName := c.Param("policyName")
 	fmt.Printf("\n=== STARTING EXECUTE POLICY HANDLER: %s ===\n", policyName)
 
@@ -331,7 +297,7 @@ func executePolicyHandler(c echo.Context) error {
 	})
 }
 
-func debugJaneHandler(c echo.Context) error {
+func DebugJaneHandler(c echo.Context) error {
 	janeBaseURL := "http://localhost:8520"
 
 	elements, err := jane.GetElementsByName(janeBaseURL,"bobafet")
@@ -357,7 +323,7 @@ func debugJaneHandler(c echo.Context) error {
 	})
 }
 
-func debugAttestation(c echo.Context) error {
+func DebugAttestation(c echo.Context) error {
 	janeURL := "http://localhost:8520"
 
 	sid, err := jane.CreateSession(janeURL)
