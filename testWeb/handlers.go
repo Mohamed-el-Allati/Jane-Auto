@@ -36,7 +36,7 @@ func homeHandler(c echo.Context) error {
 	}
 	ruleCount := len(ruleSet)
 
-	html := fmt.Sprintf(`<!DOCTYPE html
+	html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
 	<title>JANE Auto - Home</title>
@@ -48,7 +48,7 @@ func homeHandler(c echo.Context) error {
 		.subtitle { color: #475569; margin-bottom: 2rem; font-size: 1.1rem; }
 		.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 40px; }
 		.stat-card { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); transition: transform 0.2s; }
-		.stat.card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); }
+		.stat-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); }
 		.stat-number { font-size: 2.5rem; font-weight: 700; color: #0f172a; line-height: 1.2; }
 		.stat-label { color: #64748b; text-transform: uppercase; letter-spacing: 0.5em; font-size: 0.875rem; margin-top: 8px; }
 		.btn { display: inline.block; background: #2563eb; color: white; padding: 14px 28px; border-radius: 40px; text-decoration: none; font-weight: 500, font-size: 1.125rem; border: none; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3); transition: background 0.2s, transform 0.1s; }
@@ -82,7 +82,7 @@ func homeHandler(c echo.Context) error {
 
 		<hr>
 		<div class="footer">
-			<p>Powered by JANE Engine * <a href="/policies" style="color:#2563eb;">View all policies</a></p>
+			<p>Powered by JANE Attestation Engine * <a href="/policies" style="color:#2563eb;">View all policies</a></p>
 		</div>
 	</div>
 </body>
@@ -176,7 +176,7 @@ func attestRunHandler(c echo.Context) error {
 			<td>%s</td>
 			<td>%s</td>
 			<td>%t</td>
-			<td title="%s"</td>
+			<td title="%s">%s</td>
 		</tr>`, passClass, r.ElementID, r.Intent, r.Passed, r.ClaimID, claimShort))
 	}
 
@@ -190,7 +190,7 @@ func attestRunHandler(c echo.Context) error {
 		.container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 24px; padding: 32px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); }
 		h2 { color: #1e293b; margin-bottom: 8px; }
 		.policy-name { color: #2563eb; font-weight: 500; margin-bottom: 24px; }
-		table { width: 100%%; border-collapse; margin-top: 24px; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1); }
+		table { width: 100%; border-collapse: collapse; margin-top: 24px; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1); }
 		th { background: #f8fafc; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; padding: 16px 12px; text-align: left; }
 		td { padding: 14px 12px; border-bottom: 1px solid #e2e8f0; }
 		tr.pass { background-color: #f0fdf4; }
