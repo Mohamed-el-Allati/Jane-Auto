@@ -27,9 +27,11 @@ func main() {
 	e.Use(middleware.Recover())
 
 	e.GET("/", homeHandler)
+	e.GET("/attest", attestFormHandler)
 	e.GET("/policies", policiesHandler)
 	e.GET("/debug-jane", debugJaneHandler)
 
+	e.POST("/attest/run", attestRunHandler)
 	e.POST("/execute/:policyName", executePolicyHandler)
 
 	addr := fmt.Sprintf(":%d", config.ConfigData.Rest.Port)
