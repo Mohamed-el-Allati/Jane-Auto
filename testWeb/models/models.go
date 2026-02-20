@@ -29,6 +29,7 @@ type PolicyCollection struct {
 
 type AttestationResult struct {
 	ElementID   string                   `bson:"element_id" json:"element_id"`
+	ElementName string		     `bson:"element_name" json:"element_name"`
 	Intent      string                   `bson:"intent" json:"intent"`
 	Claim       interface{}              `bson:"claim" json:"claim"`
 	Passed      bool                     `bson:"passed" json:"passed"`

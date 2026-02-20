@@ -6,7 +6,9 @@ import (
 	"github.com/labstack/echo/v4"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"janeauto/models"
 	"janeauto/db"
@@ -144,6 +146,7 @@ func AttestFormHandler(c echo.Context) error {
 	return c.HTML(http.StatusOK, html)
 }
 
+// Executes the selected policy and displays the results
 func AttestRunHandler(c echo.Context) error {
 	policyName := c.FormValue("policy")
 	if policyName == "" {
@@ -157,84 +160,140 @@ func AttestRunHandler(c echo.Context) error {
 	}
 
 	// Executes the policy
-	results, err := attestor.ExecutePolicy(policy)
+	results, sessionID, err := attestor.ExecutePolicy(policy)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Execution failed: "+err.Error())
 	}
 
-	// Builds the HTML table
-	var tableRows strings.Builder
+	// Builds the JANE session URL
+	sessionURL := buildSessionURL(policy.Jane, sessionID)
+
+	// Current timestamp
+	timestamp := time.Now().Format("02-01-2006 15:04:05")
+
+	// Build results cards
+	var cards strings.Builder
 	for _, r := range results {
-		passClass := "pass"
-		if !r.Passed {
-			passClass = "fail"
+		// Determines card color class
+		var cardClass string
+		if r.Passed {
+			cardClass = "pass"
+		} else {
+			cardClass = "fail"
 		}
 
-		// Truncate claim ID for display
-		claimShort := r.ClaimID
-		if len(claimShort) > 8 {
-			claimShort = claimShort[:8] + "..."
+		// Element display: use name if available, otherwise uses eid
+		elementDisplay := r.ElementID
+		if r.ElementName != "" {
+			elementDisplay = r.ElementName
 		}
 
-		tableRows.WriteString(fmt.Sprintf(
-		`<tr class ="%s">
-			<td>%s</td>
-			<td>%s</td>
-			<td>%t</td>
-			<td title="%s">%s</td>
-		</tr>`, passClass, r.ElementID, r.Intent, r.Passed, r.ClaimID, claimShort))
+		// Builds rule details
+		var ruleDetails strings.Builder
+		if len(r.RuleResults) == 0 {
+			ruleDetails.WriteString("<p>No rules executed for this attestation.</p>")
+		} else {
+			ruleDetails.WriteString("<table class='rule-table'><tr><th>Rule</th><th>Result ID</th><th>Passed</th></tr>")
+			for _, ruleRes := range r.RuleResults {
+				ruleName, _ := ruleRes["rule"]. (string)
+				resultID, _ := ruleRes["result_id"].(string)
+				passed, _ := ruleRes["passed"].(bool)
+				passedStr := "Fail"
+				if passed {
+					passedStr = "Pass"
+				}
+				// Truncate result ID
+				if len(resultID) > 8 {
+					resultID = resultID[:8] + "..."
+				}
+				ruleDetails.WriteString(fmt.Sprintf("<tr><td>%s</td><td title='%s'>%s</td><td>%s</td></tr>", ruleName, resultID, resultID, passedStr))
+			}
+			ruleDetails.WriteString("</table>")
+		}
+
+		// Builds the HTML table
+		card := fmt.Sprintf(`
+		<div class="result-card %s">
+			<div class="card-summary">
+				<span class="element">%s</span>
+				<span class="intent">%s</span>
+				<span class="passed-badge">%s</span>
+				<span class="claim-id" title="%s">Claim: %s</span>
+			</div>
+			<details class="card-details">
+				<summary>Show rule details</summary>
+				<div class="details-content">
+					%s
+				</div>
+			</details>
+		</div>`, cardClass, elementDisplay, r.Intent,
+			map[bool]string{true: "Pass", false: "Fail"}[r.Passed],
+			r.ClaimID, truncate(r.ClaimID, 8),
+			ruleDetails.String())
+		cards.WriteString(card)
 	}
 
 	html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
-	<title>Attestation Results</title>
+	<title>Attestation Results: %s</title>
 	<style>
 		* { margin: 0; padding: 0; box-sizing: border-box; font-family: system-ui, sans-serif; }
 		body { background: #f4f6f9; padding: 40px 20px; }
-		.container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 24px; padding: 32px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); }
+		.container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 24px; padding: 32px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
 		h2 { color: #1e293b; margin-bottom: 8px; }
-		.policy-name { color: #2563eb; font-weight: 500; margin-bottom: 24px; }
-		table { width: 100%%; border-collapse: collapse; margin-top: 24px; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1); }
-		th { background: #f8fafc; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; padding: 16px 12px; text-align: left; }
-		td { padding: 14px 12px; border-bottom: 1px solid #e2e8f0; }
-		tr.pass { background-color: #f0fdf4; }
-		tr.fail { background-color: #fef2f2; }
+		.policy-name { color: #2563eb; font-weight: 500; margin-bottom: 8px; }
+		.session-info { margin-bottom: 24px; font-size: 0.9rem; color: #475569; }
+		.session-info a { color: #2563eb; text-decoration: none; }
+		.session-info a:hover { text-decoration: underline; }
+		.timestamp { color: #64748b; font-size: 0.9rem; margin-bottom: 24px; }
+		.results-grid { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+		.result-card { border-radius: 12px; padding: 16px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: all 0.2s; }
+		.result-card.pass { background-color: #f0fdf4; border-left: 6px solid #22c55e; }
+		.result-card.fail { background-color: #fef2f2; border-left: 6px solid #ef4444; color: #7f1d1d; }
+		.result-card.neutral { background-color: f2fce8; border-left: 6px solid #eab308; }
+		.card-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; font-size: 1rem; }
+		.element { font-weight: 600; min-width: 150px; }
+		.intent { font-family: monospace; background: rgba(0,0,0,0.05); padding: 4px 8px; border-radius: 20px; }
+		.passed-badge { font-weight: 500; }
+		.claim-id { color: #475569; font-size: 0.9rem; margin-left: auto; }
+		.card-details { margin-top: 16px; }
+		.card-details summary {cursor: pointer; color: #2563eb; font-weight: 500; }
+		.details-content { margin-top: 12px; padding: 12px; background: white; border-radius: 8px; border: 1px solid #e2e8f0; }
+		.rule-table { width: 100%%; border-collapse: collapse; font-size: 0.9rem; }
+		.rule-table th { text-align: left; padding: 8px; background: #f8fafc; border-bottom: 2px solid #cbd5e1; }
+		.rule-table td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
 		.btn-secondary { display: inline-block; background: #f1f5f9; color: #334155; padding: 10px 20px; border-radius: 40px; text-decoration: none; font-weight: 500; margin-top: 24px; border: 1px solid #cbd5e1; transition: background 0.2s; }
-		.summary { background: #f8fafc; border-radius: 12px; padding: 16px; margin: 24px 0; }
-		.summary span { font-weight: 600; color: #0f172a; }
+		.btn-secondary:hover { background: #e2e8f0; }
+		.btn-secondary + .btn-secondary { margin-left: 12px; }
 	</style>
 </head>
 <body>
 	<div class="container">
-		<h2> Attestation Results</h2>
+		<h2> Attestation Results: %s</h2>
 		<div class="policy-name">Policy: %s</div>
+		<div class="session-info">Session: <a href="%s" target= "_blank">%s</a></div>
+		<div class="timestamp">Executed on: %s</div>
 
-		<div class="summary">
-			<span>Total Results: %d</span>
+		<div class="results-grid">
+			%s
 		</div>
-
-		<table>
-			<thead>
-				<tr>
-					<th>Element ID</th>
-					<th>Intent</th>
-					<th>Passed</th>
-					<th>Claim ID</th>
-				</tr>
-			</thead>
-			<tbody>
-				%s
-			</tbody>
-		</table>
 
 		<a href="/attest" class="btn-secondary"> Run another policy</a>
 		<a href="/" class="btn-secondary" style="margin-left: 12px;"> Home</a>
 	</div>
 </body>
-</html>`, policyName, len(results), tableRows.String())
+</html>`, policyName, policyName, policyName, sessionURL, sessionID, timestamp, cards.String())
 
 	return c.HTML(http.StatusOK, html)
+}
+
+// Helper to truncate strings
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func PoliciesHandler(c echo.Context) error {
@@ -285,7 +344,7 @@ func ExecutePolicyHandler(c echo.Context) error {
 		return c.String(http.StatusNotFound, "Policy not found")
 	}
 
-	results, err := attestor.ExecutePolicy(policy)
+	results, _, err := attestor.ExecutePolicy(policy)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Execution failed: "+err.Error())
 	}
@@ -295,6 +354,27 @@ func ExecutePolicyHandler(c echo.Context) error {
 		"results": results,
 		"count:":  len(results),
 	})
+}
+
+// This function constructs the JANE web UI session URL
+// it takes the API base url and the session ID, and returns a URL pointing to the UI on port 8540
+func buildSessionURL(apiURL, sessionID string) string {
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		// fallback, just append
+		return apiURL + "/session/" + sessionID
+	}
+
+	// Replaces port with 8540
+	hostParts := strings.Split(u.Host, ":")
+	if len(hostParts) == 2 {
+		u.Host = hostParts[0] + ":8540"
+	} else {
+		// no port specified, just add 8540
+		u.Host = u.Host + ":8540"
+	}
+	//Ensures path ends with /session/ID
+	return u.String() + "/session/" + sessionID
 }
 
 func DebugJaneHandler(c echo.Context) error {

@@ -57,7 +57,8 @@ func runRules(janeURL, claimID, sessionID string, rules []models.Rule) (bool, []
 }
 
 // ExecutePolicy runs the entire attestation process for any given policy.
-func ExecutePolicy(policy *models.Policy) ([]models.AttestationResult, error) {
+// Returns results, sessionID
+func ExecutePolicy(policy *models.Policy) ([]models.AttestationResult, string, error) {
 	fmt.Printf("\n=== EXECUTING POLICY: %s ===\n", policy.Name)
 
 	janeURL := policy.Jane
@@ -66,7 +67,7 @@ func ExecutePolicy(policy *models.Policy) ([]models.AttestationResult, error) {
 	fmt.Printf("[DEBUG] Fetching intents from: %s\n", janeURL+"/intents")
 	resp, err := http.Get(janeURL + "/intents")
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch intents: %v", err)
+		return nil, "", fmt.Errorf("failed to fetch intents: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -77,7 +78,7 @@ func ExecutePolicy(policy *models.Policy) ([]models.AttestationResult, error) {
 		Intents []string `json:"intents"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&intentData); err != nil {
-		return nil, fmt.Errorf("failed to decode intents: %v", err)
+		return nil, "", fmt.Errorf("failed to decode intents: %v", err)
 	}
 
 	// builds intent name -> itemID map
@@ -93,16 +94,28 @@ func ExecutePolicy(policy *models.Policy) ([]models.AttestationResult, error) {
 	}
 	fmt.Printf("[DEBUG] Intent map has %d entries\n", len(intentNameToItemID))
 
-	// Resolves element names to UUIDs
+	// Resolves element names to UUIDs and builds name map
 	var elementIDs []string
+	uuidToName := make(map[string]string)
+
+	// Adds direct item IDs (if there are any) they have no name so we leave name empty
 	elementIDs = append(elementIDs, policy.Collection.Items...)
+
 	for _, name := range policy.Collection.Names {
-		fmt.Printf("[DEBUG] Looking for elements with name : %s\n", name)
-		ids, _ := jane.GetElementsByName(janeURL, name)
+		fmt.Printf("[DEBUG] Looking for elements with name: %s\n", name)
+		ids, err := jane.GetElementsByName(janeURL, name)
+		if err != nil {
+			fmt.Printf("[WARNING] Could not resolve name '%s': %v\n", name, err)
+			continue
+		}
+		for _, id := range ids {
+		uuidToName[id] = name // stores mapping
 		elementIDs = append(elementIDs, ids...)
+		}
 	}
 	elementIDs = unique(elementIDs)
 
+	// Filters empty IDs
 	var filtered []string
 	for _, id := range elementIDs {
 		if strings.TrimSpace(id) != "" {
@@ -115,7 +128,7 @@ func ExecutePolicy(policy *models.Policy) ([]models.AttestationResult, error) {
 	// creates the jane session
 	sid, err := jane.CreateSession(janeURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create JANE session: %v", err)
+		return nil, "", fmt.Errorf("failed to create JANE session: %v", err)
 	}
 	// ensures session is closed after we finish
 	defer jane.CloseSession(janeURL, sid)
@@ -134,10 +147,11 @@ func ExecutePolicy(policy *models.Policy) ([]models.AttestationResult, error) {
 			if !ok {
 				fmt.Printf("[ERROR] Intent not found on JANE: %s\n", attest.Intent)
 				results = append(results, models.AttestationResult{
-					ElementID: eid,
-					Intent:    attest.Intent,
-					Claim:     map[string]interface{}{"error": "Intent not found on JANE"},
-					Passed:    false,
+					ElementID: 	eid,
+					ElementName:	uuidToName[eid], // can be empty 
+					Intent:    	attest.Intent,
+					Claim:     	map[string]interface{}{"error": "Intent not found on JANE"},
+					Passed:    	false,
 				})
 				continue
 			}
@@ -146,10 +160,11 @@ func ExecutePolicy(policy *models.Policy) ([]models.AttestationResult, error) {
 			claimID, err := jane.RunAttestation(janeURL, eid, pid, attest.Endpoint, sid)
 			if err != nil {
 				results = append(results, models.AttestationResult{
-					ElementID: eid,
-					Intent:    attest.Intent,
-					Claim:     map[string]interface{}{"error": err.Error()},
-					Passed:    false,
+					ElementID: 	eid,
+					ElementName: 	uuidToName[eid],
+					Intent:    	attest.Intent,
+					Claim:     	map[string]interface{}{"error": err.Error()},
+					Passed:    	false,
 				})
 				continue
 			}
@@ -158,10 +173,11 @@ func ExecutePolicy(policy *models.Policy) ([]models.AttestationResult, error) {
 			claim, err := jane.GetClaim(janeURL, claimID)
 			if err != nil {
 				results = append(results, models.AttestationResult{
-					ElementID: eid,
-					Intent:    attest.Intent,
-					Claim:     map[string]interface{}{"error": err.Error()},
-					Passed:    false,
+					ElementID: 	eid,
+					ElementName: 	uuidToName[eid],
+					Intent:    	attest.Intent,
+					Claim:     	map[string]interface{}{"error": err.Error()},
+					Passed:    	false,
 				})
 				continue
 			}
@@ -172,6 +188,7 @@ func ExecutePolicy(policy *models.Policy) ([]models.AttestationResult, error) {
 			// saves the results
 			results = append(results, models.AttestationResult{
 				ElementID:   eid,
+				ElementName: uuidToName[eid],
 				Intent:      attest.Intent,
 				Claim:       claim,
 				Passed:      passed,
@@ -182,5 +199,5 @@ func ExecutePolicy(policy *models.Policy) ([]models.AttestationResult, error) {
 	}
 
 	fmt.Printf("[DEBUG] Total results: %d\n", len(results))
-	return results, nil
+	return results, sid, nil
 }
