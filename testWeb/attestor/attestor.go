@@ -31,19 +31,31 @@ func runRules(janeURL, claimID, sessionID string, rules []models.Rule) (bool, []
 	for _, rule := range rules {
 		fmt.Printf("[DEBUG] Running rule: %s on claim %s\n", rule.Name, claimID)
 
-		resultID, passed, err := jane.RunVerification(janeURL, claimID, rule.Name, sessionID)
+		resultID,resultCode, passed, err := jane.RunVerification(janeURL, claimID, rule.Name, sessionID)
 		if err != nil {
 			fmt.Printf("[ERROR] Failed to run rule %s: %v\n", rule.Name, err)
 			ruleResults = append(ruleResults, map[string]interface{}{
 				"rule":		rule.Name,
-				"passed":	false,
+				"status":	"error",
 				"error":	err.Error(),
 			})
 			allPassed = false
 			continue
 		}
+
+		// Determines status based on result code
+		status := "pass"
+		if !passed {
+			if resultCode == 9098 { //treats this specific code as "error"
+				status = "error"
+			} else {
+				status = "fail"
+			}
+		}
+
 		ruleResults = append(ruleResults, map[string]interface{}{
 			"rule":		rule.Name,
+			"status":	status,
 			"passed":	passed,
 			"result_id":	resultID,
 		})

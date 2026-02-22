@@ -85,7 +85,7 @@ func GetIntentItemID(janeURL, intentName string) (string, error) {
 }
 
 // RunVerification executes a rule on a claim and returns the result ID and pass or fail
-func RunVerification(janeURL, claimID, ruleName, sessionID string) (string, bool, error) {
+func RunVerification(janeURL, claimID, ruleName, sessionID string) (string, int, bool, error) {
 	verifyData := map[string]interface{}{
 		"cid":		claimID,
 		"rule":		ruleName,
@@ -98,7 +98,7 @@ func RunVerification(janeURL, claimID, ruleName, sessionID string) (string, bool
 
 	resp, err := http.Post(fmt.Sprintf("%s/verify", janeURL), "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		return "", false, fmt.Errorf("verify call failed: %v", err)
+		return "", 0, false, fmt.Errorf("verify call failed: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -111,15 +111,15 @@ func RunVerification(janeURL, claimID, ruleName, sessionID string) (string, bool
 		Error	string	`json:"error"`
 	}
 	if err := json.Unmarshal(rawBody, &result); err != nil {
-		return "", false, fmt.Errorf("failed to parse verify response: %v", err)
+		return "", 0, false, fmt.Errorf("failed to parse verify response: %v", err)
 	}
 
 	if result.Error != "" {
-		return "", false, fmt.Errorf("JANE verification error: %s", result.Error)
+		return "", 0, false, fmt.Errorf("JANE verification error: %s", result.Error)
 	}
 
 	passed := (result.Result == 0)
-	return result.ItemID, passed, nil
+	return result.ItemID, result.Result, passed, nil
 }
 
 // RunAttestation sends an attestation request and returns the claimID

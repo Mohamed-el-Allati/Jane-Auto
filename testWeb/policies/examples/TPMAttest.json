@@ -1,0 +1,31 @@
+{  
+  "name": "TPMAttest",
+  "description": "Attests TPM relates rules, and system info for verification",
+  "jane": "http://localhost:8520",
+  "collection": {
+    "items": [],
+    "tags": [],
+    "names": ["bobafet", "mohamed"]
+  },
+  "attestations": [
+    {
+      "intent": "std::intent::tpm::pcrs",
+      "endpoint": "tarzan",
+      "rules": [
+        {"name": "tpm2_attestedValue", "rvariable": "", "parameter": "", "decision": ""},
+        {"name": "tpm2_firmware", "rvariable": "", "parameter": "", "decision": ""},
+        {"name": "tpm2_magicNumber", "rvariable": "", "parameter": "", "decision": ""},
+        {"name": "tpm2_safe", "rvariable": "", "parameter": "", "decision": ""},
+        {"name": "tpm2_type", "rvariable": "", "parameter": "", "decision": ""},
+        {"name": "tpm2_validNonce", "rvariable": "", "parameter": "", "decision": ""}
+      ]
+    },
+    {
+      "intent": "std::intent::sys::info",
+      "endpoint": "tarzan",
+      "rules": [
+        {"name": "sys_machineID_Agent", "rvariable": "", "parameter": "", "decision": ""}
+      ]
+    }
+  ]
+}

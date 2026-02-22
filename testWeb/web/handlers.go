@@ -193,20 +193,48 @@ func AttestRunHandler(c echo.Context) error {
 		if len(r.RuleResults) == 0 {
 			ruleDetails.WriteString("<p>No rules executed for this attestation.</p>")
 		} else {
-			ruleDetails.WriteString("<table class='rule-table'><tr><th>Rule</th><th>Result ID</th><th>Passed</th></tr>")
+			ruleDetails.WriteString("<table class='rule-table'><tr><th>Rule</th><th>Result ID</th><th>Status</th></tr>")
 			for _, ruleRes := range r.RuleResults {
 				ruleName, _ := ruleRes["rule"]. (string)
 				resultID, _ := ruleRes["result_id"].(string)
-				passed, _ := ruleRes["passed"].(bool)
-				passedStr := "Fail"
-				if passed {
-					passedStr = "Pass"
+				status, _ := ruleRes["status"].(string)
+
+				if status == "" {
+					if passed, ok := ruleRes["passed"].(bool); ok && passed {
+						status = "pass"
+					} else {
+						status = "fail"
+					}
 				}
+
+				var statusDisplay, statusClass string
+				switch status {
+				case "pass":
+					statusDisplay = "Pass"
+					statusClass = "status-pass"
+				case "fail":
+					statusDisplay = "Fail"
+					statusClass = "status-fail"
+				case "error":
+					statusDisplay = "Error"
+					statusClass = "status-error"
+				default:
+					statusDisplay = status
+					statusClass = ""
+				}
+
 				// Truncate result ID
-				if len(resultID) > 8 {
-					resultID = resultID[:8] + "..."
+				shortID := resultID
+				if len(shortID) > 8 {
+					shortID = shortID[:8] + "..."
 				}
-				ruleDetails.WriteString(fmt.Sprintf("<tr><td>%s</td><td title='%s'>%s</td><td>%s</td></tr>", ruleName, resultID, resultID, passedStr))
+
+				ruleDetails.WriteString(fmt.Sprintf(`
+				<tr class="%s">
+					<td>%s</td>
+					<td title="%s">%s</td>
+					<td>%s</td>
+				</tr>`, statusClass, ruleName, resultID, shortID, statusDisplay))
 			}
 			ruleDetails.WriteString("</table>")
 		}
@@ -266,6 +294,9 @@ func AttestRunHandler(c echo.Context) error {
 		.btn-secondary { display: inline-block; background: #f1f5f9; color: #334155; padding: 10px 20px; border-radius: 40px; text-decoration: none; font-weight: 500; margin-top: 24px; border: 1px solid #cbd5e1; transition: background 0.2s; }
 		.btn-secondary:hover { background: #e2e8f0; }
 		.btn-secondary + .btn-secondary { margin-left: 12px; }
+		.status-pass { background-color: #f0fdf4; }
+		.status-fail { background-color: #fef2f2; }
+		.status-error { background-color: #fef9c3; }
 	</style>
 </head>
 <body>

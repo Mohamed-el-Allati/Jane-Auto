@@ -1,0 +1,28 @@
+{  
+  "name": "BigAttest",
+  "description": "Generic attest of system information and boot measurements for x86 servers.",
+  "jane": "http://localhost:8520",
+  "collection": {
+    "items": [],
+    "tags": ["linux", "x86"],
+    "names": ["bobafet", "mohamed"]
+  },
+  "attestations": [
+    {
+      "intent": "std::intent::sys::info",
+      "endpoint": "tarzan",
+      "rules": [
+        {"name": "sys_machineID_Agent", "rvariable": "", "parameter": "", "decision": ""},
+        {"name": "sys_machineID_CrossRef", "rvariable": "", "parameter": "", "decision": ""},
+        {"name": "sys_taRunningSafely", "rvariable": "", "parameter": "", "decision": ""}
+      ]
+    },
+    {
+      "intent": "std::intent::sha256::crtm::pcr0",
+      "endpoint": "tarzan",
+      "rules": [
+        {"name": "", "rvariable": "", "parameter": ""}
+      ]
+    }
+  ]
+}
